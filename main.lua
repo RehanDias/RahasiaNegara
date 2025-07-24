@@ -287,88 +287,14 @@ local function instantTeleportTo(position)
 end
 
 --[[ RESPAWN FUNCTION ]] --
-local function waitForCharacter()
-    local player = game.Players.LocalPlayer
-    if not player then
-        return
-    end
-
-    -- Wait for character to spawn
-    if not player.Character then
-        player.CharacterAdded:Wait()
-    end
-
-    local char = player.Character
-    if not char then
-        return
-    end
-
-    -- Wait for essential parts
-    local humanoid = char:WaitForChild("Humanoid", 10)
-    local rootPart = char:WaitForChild("HumanoidRootPart", 10)
-
-    -- Wait for character to be grounded and fully loaded
-    local tries = 0
-    while tries < 20 do
-        if humanoid and rootPart and humanoid.Health > 0 and not rootPart.Anchored then
-            -- Wait additional time for physics to settle
-            task.wait(0.5)
-            return true
-        end
-        tries = tries + 1
-        task.wait(0.1)
-    end
-
-    return false
-end
-
 local function respawnCharacter()
     local player = game.Players.LocalPlayer
-    if not player then
-        return
-    end
-
-    local success = false
-    local tries = 0
-
-    while not success and tries < 3 do
-        -- Reset character
-        if player.Character then
-            local humanoid = player.Character:FindFirstChild("Humanoid")
-            if humanoid then
-                humanoid.Health = 0
-            end
+    if player and player.Character then
+        local humanoid = player.Character:FindFirstChild("Humanoid")
+        if humanoid then
+            humanoid.Health = 0 -- This will trigger proper respawn
         end
-
-        -- Wait for new character to fully load
-        task.wait(1) -- Wait for death animation
-        success = waitForCharacter()
-
-        if success then
-            -- Additional safety check
-            local char = player.Character
-            if char then
-                local humanoid = char:FindFirstChild("Humanoid")
-                local rootPart = char:FindFirstChild("HumanoidRootPart")
-
-                if humanoid and rootPart then
-                    -- Ensure character is in a good state
-                    rootPart.Anchored = false
-                    humanoid.PlatformStand = false
-                    humanoid:ChangeState(Enum.HumanoidStateType.Running)
-
-                    -- Wait for physics to settle
-                    task.wait(0.5)
-                    return true
-                end
-            end
-        end
-
-        tries = tries + 1
-        task.wait(1)
     end
-
-    return false
 end
 
 --[[ AUTO TELEPORT FUNCTION ]] --
@@ -390,27 +316,19 @@ local function startAutoTeleport()
             else
                 -- When reaching SOUTHPOLE
                 wait(1)
+                respawnCharacter() -- Respawn instead of teleporting to BASE
+                wait(3) -- Wait for respawn
+                if isAutoTeleporting then
+                    -- Restart from CAMP1 if auto teleport is still enabled
+                    currentCheckpoint = 1
+                    instantTeleportTo(teleportPoints[checkpointOrder[currentCheckpoint]])
 
-                -- Properly handle respawn
-                if respawnCharacter() then
-                    task.wait(0.5) -- Additional wait after successful respawn
-
-                    if isAutoTeleporting then
-                        -- Restart from CAMP1 if auto teleport is still enabled
-                        currentCheckpoint = 1
-                        task.wait(0.5) -- Wait before teleporting
-                        instantTeleportTo(teleportPoints[checkpointOrder[currentCheckpoint]])
-
-                        game:GetService("StarterGui"):SetCore("SendNotification", {
-                            Title = "Arcan1ST Script",
-                            Text = "Restarting from CAMP1! 🔄",
-                            Duration = 3
-                        })
-                    end
-                else
-                    warn("Failed to respawn properly, retrying...")
-                    task.wait(1)
-                    respawnCharacter() -- Try one more time
+                    -- Show restart message
+                    game:GetService("StarterGui"):SetCore("SendNotification", {
+                        Title = "Arcan1ST Script",
+                        Text = "Restarting from CAMP1! 🔄",
+                        Duration = 3
+                    })
                 end
                 break
             end
