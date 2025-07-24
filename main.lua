@@ -716,17 +716,17 @@ local function fillBottleAtCamp(campName)
             if waterBottle.Parent == backpack then
                 local humanoid = character:WaitForChild("Humanoid")
                 humanoid:EquipTool(waterBottle)
-                wait(0.3) -- Wait for equip animation
+                task.wait(0.3) -- Wait for equip animation
             end
 
             -- Teleport to fill location and perform fill action
             instantTeleportTo(fillLocation)
-            wait(0.3)
+            task.wait(0.3)
 
             -- Fill bottle
             local args = {"FillBottle", properCampName, "Water"}
             ReplicatedStorage:WaitForChild("Events"):WaitForChild("EnergyHydration"):FireServer(unpack(args))
-            wait(0.5)
+            task.wait(0.5)
 
             -- Return to checkpoint immediately after filling
             if teleportPoints[campName] then
@@ -745,7 +745,7 @@ local function fillBottleAtCamp(campName)
 end
 
 --[[ INITIALIZE HYDRATION SYSTEM ]] --
-spawn(function()
+task.spawn(function()
     RunService.RenderStepped:Connect(function()
         if not isAutoHydrationEnabled then
             return
@@ -762,7 +762,7 @@ spawn(function()
             if hydration < 50 then -- Only drink when below 50%
                 -- Try to drink and check if hydration increases
                 local beforeDrinkHydration = hydration
-                local drinkSuccess = tryDrink()
+                tryDrink() -- Directly call tryDrink without storing result
 
                 task.wait(0.3) -- Wait for hydration update
 
@@ -816,8 +816,6 @@ spawn(function()
                             local success = tryDrink()
                             task.wait(0.3)
                             local newHydration = player:GetAttribute("Hydration")
-
-                            -- Stop if drink failed or hydration not increasing
                             if not success or newHydration <= currentHydration then
                                 break
                             end
@@ -832,7 +830,7 @@ spawn(function()
 end)
 
 --[[ INITIALIZE PROTECTION ]] --
-spawn(function()
+task.spawn(function()
     local player = game.Players.LocalPlayer
 
     -- Wait for character to load if not already loaded
@@ -857,7 +855,7 @@ spawn(function()
 end)
 
 --[[ INITIALIZE CHARACTER MOVEMENT ]] --
-spawn(function()
+task.spawn(function()
     local player = game.Players.LocalPlayer
 
     -- Fix current character
@@ -872,7 +870,7 @@ spawn(function()
     end)
 
     -- Periodically check and fix movement
-    spawn(function()
+    task.spawn(function()
         while wait(1) do
             if player.Character then
                 local rootPart = player.Character:FindFirstChild("HumanoidRootPart")
@@ -962,8 +960,8 @@ updatePosition(MinimizedFrame, MainFrame)
 MainFrame.Size = UDim2.new(0, 180, 0, 0) -- Width fixed, height automatic
 
 --[[ UPDATE WATERMARK POSITION ]] --
-spawn(function()
-    while wait() do
+task.spawn(function()
+    while task.wait() do
         if MainFrame.Visible then
             local totalHeight = ButtonHolder.AbsoluteSize.Y + 50 -- 30 for title + 20 for watermark
             Watermark.Position = UDim2.new(0, 0, 0, totalHeight)
