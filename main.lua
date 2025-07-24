@@ -292,7 +292,36 @@ local function respawnCharacter()
     if player and player.Character then
         local humanoid = player.Character:FindFirstChild("Humanoid")
         if humanoid then
-            humanoid.Health = 0 -- This will trigger proper respawn
+            -- Fade out screen before respawn
+            local fadeScreen = Instance.new("ScreenGui")
+            local fadeFrame = Instance.new("Frame")
+            fadeFrame.BackgroundColor3 = Color3.new(0, 0, 0)
+            fadeFrame.Size = UDim2.fromScale(1, 1)
+            fadeFrame.BackgroundTransparency = 1
+            fadeFrame.Parent = fadeScreen
+            fadeScreen.Parent = game.CoreGui
+
+            -- Animate fade out
+            for i = 1, 10 do
+                fadeFrame.BackgroundTransparency = 1 - (i / 10)
+                wait(0.05)
+            end
+
+            -- Respawn the character
+            humanoid.Health = 0
+
+            -- Wait for new character
+            player.CharacterAdded:Wait()
+            wait(2) -- Give extra time for textures to load
+
+            -- Animate fade in
+            for i = 1, 10 do
+                fadeFrame.BackgroundTransparency = i / 10
+                wait(0.05)
+            end
+
+            -- Clean up
+            fadeScreen:Destroy()
         end
     end
 end
