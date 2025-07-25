@@ -302,19 +302,46 @@ local function instantTeleportTo(position)
             break
         end
         tries = tries + 1
-        wait(0.1)
+        task.wait(0.1)
     end
 end
 
+--[[ PRE-DECLARE FUNCTIONS ]] --
+local startAutoTeleport
+local stopAutoTeleport
+
 --[[ RESPAWN FUNCTION ]] --
 local function respawnCharacter()
+    local player = game.Players.LocalPlayer
+    local wasAutoTeleporting = isAutoTeleporting
+
+    -- Hentikan semua auto fitur
+    stopAutoTeleport()
+
+    -- Trigger respawn melalui RemoteEvent
     local args = {"Died"}
     game:GetService("ReplicatedStorage"):WaitForChild("Events"):WaitForChild("CharacterHandler")
         :FireServer(unpack(args))
+
+    -- Tunggu sampai karakter benar-benar terload
+    local newCharacter = player.CharacterAdded:Wait()
+    newCharacter:WaitForChild("Humanoid")
+    newCharacter:WaitForChild("HumanoidRootPart")
+    task.wait(0.2)
+
+    -- Aktifkan ulang auto fitur jika sebelumnya aktif
+    if wasAutoTeleporting then
+        startAutoTeleport()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "Auto Complete",
+            Text = "Resumed after respawn ▶️",
+            Duration = 2
+        })
+    end
 end
 
---[[ AUTO TELEPORT FUNCTION ]] --
-local function startAutoTeleport()
+--[[ AUTO TELEPORT FUNCTION (Assigned to pre-declared variable) ]] --
+startAutoTeleport = function()
     if isAutoTeleporting then
         return
     end
@@ -324,22 +351,20 @@ local function startAutoTeleport()
     isAutoJumping = true
     startAutoJump()
 
-    spawn(function()
+    task.spawn(function()
         while isAutoTeleporting do
             if currentCheckpoint <= #checkpointOrder then
                 instantTeleportTo(teleportPoints[checkpointOrder[currentCheckpoint]])
-                wait(0.5)
+                task.wait(0.5)
             else
                 -- When reaching SOUTHPOLE
-                wait(1)
+                task.wait(1)
                 respawnCharacter() -- Respawn instead of teleporting to BASE
-                wait(3) -- Wait for respawn
+                task.wait(3)
                 if isAutoTeleporting then
-                    -- Restart from CAMP1 if auto teleport is still enabled
                     currentCheckpoint = 1
                     instantTeleportTo(teleportPoints[checkpointOrder[currentCheckpoint]])
 
-                    -- Show restart message
                     game:GetService("StarterGui"):SetCore("SendNotification", {
                         Title = "Arcan1ST Script",
                         Text = "Restarting from CAMP1! 🔄",
@@ -365,8 +390,12 @@ game:GetService("ReplicatedStorage").Message_Remote.OnClientEvent:Connect(functi
                     Duration = 2
                 })
 
-                task.wait(1)
-                respawnCharacter() -- Respawn
+                -- Immediately teleport to BASE first
+                instantTeleportTo(teleportPoints["BASE"])
+                task.wait(0.5)
+
+                -- Then respawn
+                respawnCharacter()
                 task.wait(3) -- Wait for respawn
 
                 if isAutoTeleporting then
@@ -548,21 +577,6 @@ Watermark.TextSize = 12
 Watermark.BorderSizePixel = 0
 Instance.new("UICorner", Watermark).CornerRadius = UDim.new(0, 8)
 
---[[ CREATE HYDRATION BUTTON ]] --
-local HydrationBtn = Instance.new("TextButton", ButtonHolder)
-HydrationBtn.Size = UDim2.new(1, 0, 0, 30)
-HydrationBtn.Text = "💧 Auto Hydration"
-HydrationBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-HydrationBtn.BackgroundColor3 = Color3.fromRGB(60, 180, 75)
-HydrationBtn.Font = Enum.Font.SourceSansBold
-HydrationBtn.TextSize = 14
-HydrationBtn.BorderSizePixel = 0
-HydrationBtn.TextXAlignment = Enum.TextXAlignment.Left
-HydrationBtn.TextWrapped = false
-HydrationBtn.LayoutOrder = 0 -- First button
-Instance.new("UIPadding", HydrationBtn).PaddingLeft = UDim.new(0, 10)
-Instance.new("UICorner", HydrationBtn).CornerRadius = UDim.new(0, 6)
-
 --[[ CREATE AUTO COMPLETE BUTTON ]] --
 local AutoTpBtn = Instance.new("TextButton", ButtonHolder)
 AutoTpBtn.Size = UDim2.new(1, 0, 0, 30)
@@ -593,7 +607,7 @@ for i, name in ipairs(buttonOrder) do
     btn.BorderSizePixel = 0
     btn.TextXAlignment = Enum.TextXAlignment.Left
     btn.TextWrapped = false
-    btn.LayoutOrder = i + 1 -- Start after Auto Complete button
+    btn.LayoutOrder = i + 2 -- Start after Auto Complete button
     Instance.new("UIPadding", btn).PaddingLeft = UDim.new(0, 10)
     Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
@@ -855,7 +869,7 @@ task.spawn(function()
 
     -- Setup character protection for future respawns
     player.CharacterAdded:Connect(function(char)
-        wait(1) -- Wait for character to fully load
+        task.wait(1) -- Wait for character to fully load
         setupAntiFallDamage()
 
         -- Additional safety: Connect to touched events
@@ -884,7 +898,7 @@ task.spawn(function()
 
     -- Periodically check and fix movement
     task.spawn(function()
-        while wait(1) do
+        while task.wait(1) do
             if player.Character then
                 local rootPart = player.Character:FindFirstChild("HumanoidRootPart")
                 local humanoid = player.Character:FindFirstChild("Humanoid")
