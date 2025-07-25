@@ -5,9 +5,7 @@ local RunService = game:GetService("RunService")
 
 --[[ VARIABLES ]] --
 local player = Players.LocalPlayer
-local hydrationThreshold = 50
 local isAutoHydrationEnabled = true
--- Add cache for validated positions
 local validatedPositions = {}
 
 --[[ TELEPORT LOCATIONS ]] --
@@ -82,7 +80,7 @@ end
 
 --[[ AUTO JUMP FUNCTION ]] --
 local function startAutoJump()
-    spawn(function()
+    task.spawn(function()
         while isAutoJumping do
             local player = game.Players.LocalPlayer
             if player and player.Character then
@@ -91,7 +89,7 @@ local function startAutoJump()
                     humanoid.Jump = true
                 end
             end
-            wait(0.5)
+            task.wait(0.5)
         end
     end)
 end
@@ -163,28 +161,50 @@ end
 --[[ SAFETY TELEPORT FUNCTION ]] --
 local function waitForTerrain(position)
     local terrain = workspace.Terrain
-    local radius = 100 -- Radius area to check for obstacles
+    local maxAttempts = 50 -- Maximum number of attempts
+    local attempts = 0
 
     -- Wait for terrain and obstacles to load
     local startTime = tick()
     local timeout = 5 -- Maximum wait time in seconds
 
-    while tick() - startTime < timeout do
-        local blockFound = false
+    while tick() - startTime < timeout and attempts < maxAttempts do
+        attempts = attempts + 1
 
-        -- Check if there's any solid ground below the position
-        local ray = Ray.new(position + Vector3.new(0, 10, 0), Vector3.new(0, -20, 0))
-        local hit, hitPosition = workspace:FindPartOnRay(ray)
+        -- Check if there's any solid ground below the position using multiple rays
+        local rays = {Ray.new(position + Vector3.new(0, 10, 0), Vector3.new(0, -20, 0)), -- Center
+        Ray.new(position + Vector3.new(2, 10, 2), Vector3.new(0, -20, 0)), -- Front-Right
+        Ray.new(position + Vector3.new(-2, 10, 2), Vector3.new(0, -20, 0)), -- Front-Left
+        Ray.new(position + Vector3.new(2, 10, -2), Vector3.new(0, -20, 0)), -- Back-Right
+        Ray.new(position + Vector3.new(-2, 10, -2), Vector3.new(0, -20, 0)) -- Back-Left
+        }
 
-        if hit then
-            -- Found solid ground
-            return true
+        -- Check all rays
+        for _, ray in ipairs(rays) do
+            local hit, hitPosition = workspace:FindPartOnRay(ray)
+
+            if hit then
+                -- Verify the hit part is actually terrain or a valid baseplate
+                if hit == terrain or (hit:IsA("BasePart") and hit.Anchored) then
+                    -- Found solid ground
+                    return true, hitPosition
+                end
+            end
+        end
+
+        -- Check for any solid parts in a small sphere around the position
+        local parts = workspace:GetPartBoundsInRadius(position, 5)
+        for _, part in ipairs(parts) do
+            if part:IsA("BasePart") and part.Anchored then
+                return true, part.Position
+            end
         end
 
         task.wait(0.1)
     end
 
-    return false -- Timeout reached
+    -- If we reach here, we couldn't find solid ground
+    return false, position -- Return position anyway as fallback
 end
 
 --[[ MOVEMENT HANDLER ]] --
@@ -288,13 +308,9 @@ end
 
 --[[ RESPAWN FUNCTION ]] --
 local function respawnCharacter()
-    local player = game.Players.LocalPlayer
-    if player and player.Character then
-        local humanoid = player.Character:FindFirstChild("Humanoid")
-        if humanoid then
-            humanoid.Health = 0 -- This will trigger proper respawn
-        end
-    end
+    local args = {"Died"}
+    game:GetService("ReplicatedStorage"):WaitForChild("Events"):WaitForChild("CharacterHandler")
+        :FireServer(unpack(args))
 end
 
 --[[ AUTO TELEPORT FUNCTION ]] --
@@ -349,14 +365,14 @@ game:GetService("ReplicatedStorage").Message_Remote.OnClientEvent:Connect(functi
                     Duration = 2
                 })
 
-                wait(1)
+                task.wait(1)
                 respawnCharacter() -- Respawn
-                wait(3) -- Wait for respawn
+                task.wait(3) -- Wait for respawn
 
                 if isAutoTeleporting then
                     -- If auto teleport is still on, restart from CAMP1
                     currentCheckpoint = 1
-                    wait(0.5) -- Tunggu sebentar setelah respawn
+                    task.wait(0.5) -- Tunggu sebentar setelah respawn
                     instantTeleportTo(teleportPoints[checkpointOrder[currentCheckpoint]])
                     game:GetService("StarterGui"):SetCore("SendNotification", {
                         Title = "Arcan1STHub",
@@ -386,7 +402,7 @@ game:GetService("ReplicatedStorage").Message_Remote.OnClientEvent:Connect(functi
 
                 currentCheckpoint = currentCheckpoint + 1
                 if currentCheckpoint <= #checkpointOrder then
-                    wait(0.5) -- Tunggu sebentar sebelum teleport ke checkpoint berikutnya
+                    task.wait(0.5) -- Tunggu sebentar sebelum teleport ke checkpoint berikutnya
                     instantTeleportTo(teleportPoints[checkpointOrder[currentCheckpoint]])
                 end
             end
@@ -752,17 +768,16 @@ task.spawn(function()
         end
 
         local hydration = player:GetAttribute("Hydration")
-        -- Only proceed if hydration exists and is below threshold
         if hydration then
-            -- Add extra check to prevent drinking if hydration is already high
+            -- Skip if hydration is already high
             if hydration >= 99 then
-                return -- Skip everything if hydration is already at or near 100%
+                return
             end
 
             if hydration < 50 then -- Only drink when below 50%
-                -- Try to drink and check if hydration increases
+                -- Try to drink first regardless of location
                 local beforeDrinkHydration = hydration
-                tryDrink() -- Directly call tryDrink without storing result
+                local success = tryDrink()
 
                 task.wait(0.3) -- Wait for hydration update
 
@@ -770,13 +785,13 @@ task.spawn(function()
                 local afterDrinkHydration = player:GetAttribute("Hydration")
                 local hydrationIncreased = afterDrinkHydration > beforeDrinkHydration
 
+                -- If drinking was successful, continue drinking
                 if hydrationIncreased then
-                    -- Keep drinking until we reach near 100%
                     while player:GetAttribute("Hydration") < 99 do
                         local currentHydration = player:GetAttribute("Hydration")
-                        local success = tryDrink()
+                        success = tryDrink()
 
-                        task.wait(0.3) -- Wait for hydration update
+                        task.wait(0.3)
                         local newHydration = player:GetAttribute("Hydration")
 
                         -- Exit if we've reached target hydration
@@ -784,36 +799,34 @@ task.spawn(function()
                             break
                         end
 
-                        -- If hydration didn't increase or drink failed, we need to refill
+                        -- If drinking failed, check if we can refill
                         if not success or newHydration <= currentHydration then
+                            -- Only attempt refill if not at SOUTHPOLE
                             local nearestCamp = getNearestCamp()
                             if nearestCamp then -- Will be nil if at SOUTHPOLE
                                 fillBottleAtCamp(nearestCamp)
                                 task.wait(0.3)
-                                -- Try drinking again after refill
                                 tryDrink()
                             end
-                            break -- Exit loop if we're at SOUTHPOLE or drinking failed after refill
+                            break -- Exit loop if at SOUTHPOLE or drinking failed after refill
                         end
 
-                        task.wait(0.2) -- Small wait between drinks
+                        task.wait(0.2)
                     end
                 else
-                    -- Initial drink didn't increase hydration, try to refill if not at SOUTHPOLE
+                    -- Initial drink didn't increase hydration, only try to refill if not at SOUTHPOLE
                     local nearestCamp = getNearestCamp()
                     if nearestCamp then
                         fillBottleAtCamp(nearestCamp)
 
-                        -- After refilling, drink until near 100%
                         task.wait(0.3)
                         while player:GetAttribute("Hydration") < 99 do
                             local currentHydration = player:GetAttribute("Hydration")
-                            -- Exit if we've reached target hydration
                             if currentHydration >= 99 then
                                 break
                             end
 
-                            local success = tryDrink()
+                            success = tryDrink()
                             task.wait(0.3)
                             local newHydration = player:GetAttribute("Hydration")
                             if not success or newHydration <= currentHydration then
@@ -903,12 +916,6 @@ MinimizedLabel.MouseButton1Click:Connect(function()
 end)
 
 -- Enhanced dragging system for MinimizedFrame
-local dragging = false
-local dragStart = nil
-local startPos = nil
-local dragInput = nil
-
--- Make entire MinimizedFrame draggable
 local function updateDrag(input)
     if dragging then
         local delta = input.Position - dragStart
@@ -918,7 +925,7 @@ local function updateDrag(input)
 end
 
 MinimizedFrame.InputBegan:Connect(function(input)
-    if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         dragging = true
         dragStart = input.Position
         startPos = MinimizedFrame.Position
@@ -931,14 +938,8 @@ MinimizedFrame.InputBegan:Connect(function(input)
     end
 end)
 
-MinimizedFrame.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        dragInput = input
-    end
-end)
-
 UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
+    if dragging then
         updateDrag(input)
     end
 end)
