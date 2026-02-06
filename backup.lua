@@ -1,7 +1,6 @@
 --[[ 
-    ARCAN1ST HUB -  REMASTERED EDITION
-    OPTIMIZED FOR: Performance, Safety, & Stability
-    Features: Smart FPS Boost, Anti-AFK, Enhanced GUI with Minimize, Legit/Blatant Mode
+    ARCAN1ST HUB - FIXED EDITION
+    Features: Smart FPS Boost, Anti-AFK, Enhanced GUI, Auto Progress Detection
 ]]
 
 local Players = game:GetService("Players")
@@ -12,6 +11,7 @@ local CoreGui = game:GetService("CoreGui")
 local TweenService = game:GetService("TweenService")
 local VirtualUser = game:GetService("VirtualUser")
 local StarterGui = game:GetService("StarterGui")
+local UserInputService = game:GetService("UserInputService")
 
 local SETTINGS = {
     FPS_BOOST_AUTO = false,
@@ -39,7 +39,8 @@ local State = {
     AutoTeleport = false,
     AutoJump = false,
     AutoHydration = false,
-    CurrentCheckpoint = 1
+    CurrentCheckpoint = 1,
+    WaitingForConfirmation = false
 }
 
 local Waypoints = {
@@ -106,6 +107,28 @@ local function SmartBoostFPS()
     Notify("FPS Booster", "Safe Mode Activated 🚀")
 end
 
+local function EnsureCharacterCanMove()
+    if not LocalPlayer or not LocalPlayer.Character then return end
+    
+    local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
+    local rootPart = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    
+    if humanoid and rootPart then
+        rootPart.Anchored = false
+        humanoid.PlatformStand = false
+        humanoid:ChangeState(Enum.HumanoidStateType.Running)
+        
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Running, true)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, true)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Swimming, true)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
+        
+        rootPart.Velocity = Vector3.new(0, 0, 0)
+        rootPart.RotVelocity = Vector3.new(0, 0, 0)
+    end
+end
+
 local function SafeTeleport(targetPos)
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return end
@@ -129,6 +152,9 @@ local function SafeTeleport(targetPos)
         task.wait(0.5)
         root.CFrame = finalCFrame
     end
+    
+    task.wait(0.2)
+    EnsureCharacterCanMove()
 end
 
 local function HookCharacter(char)
@@ -137,113 +163,204 @@ local function HookCharacter(char)
     
     hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
     hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+    hum:SetStateEnabled(Enum.HumanoidStateType.Flying, true)
+    hum:SetStateEnabled(Enum.HumanoidStateType.Landed, false)
+    hum:SetStateEnabled(Enum.HumanoidStateType.Physics, false)
     
     for _, v in pairs(char:GetChildren()) do
-        if v:IsA("Script") and (v.Name:find("Damage") or v.Name:find("Fall")) then
+        if v:IsA("Script") and (v.Name:find("Damage") or v.Name:find("Fall") or v.Name:find("freeze") or v.Name:find("Water")) then
             pcall(function() v.Disabled = true end)
         end
     end
     
-    local oldHp = hum.Health
-    hum.HealthChanged:Connect(function(newHp)
-        if newHp < oldHp and (oldHp - newHp) > 10 then 
-            hum.Health = oldHp 
+    char.ChildAdded:Connect(function(child)
+        if child:IsA("Script") then
+            if child.Name:find("Fall") or child.Name:find("Damage") or child.Name:find("freeze") or child.Name:find("Water") then
+                task.wait()
+                child:Destroy()
+            end
         end
-        oldHp = hum.Health
+    end)
+    
+    local lastHp = hum.Health
+    hum.HealthChanged:Connect(function(hp)
+        if hp < lastHp and hp > 0 then
+            hum.Health = lastHp
+        end
+        lastHp = hp
     end)
 end
 
-local function ProcessHydration()
-    if not LocalPlayer.Character then return end
+local function GetNearestCamp()
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then
+        return "BASE"
+    end
     
-    local currentHydration = LocalPlayer:GetAttribute("Hydration") or 100
-    if currentHydration < 40 then
-        local tool = LocalPlayer.Character:FindFirstChild("Water Bottle") or LocalPlayer.Backpack:FindFirstChild("Water Bottle")
-        
-        if tool then
-            local hum = LocalPlayer.Character:FindFirstChild("Humanoid")
-            if tool.Parent ~= LocalPlayer.Character and hum then 
-                hum:EquipTool(tool) 
+    local pos = char.HumanoidRootPart.Position
+    local southPolePos = Waypoints["SOUTHPOLE"]
+    local distanceToSouthPole = (pos - southPolePos).Magnitude
+    
+    if distanceToSouthPole < 500 then
+        return nil
+    end
+    
+    local closestCamp = nil
+    local shortestDistance = math.huge
+    
+    for campName, campPos in pairs(Waypoints) do
+        if campName ~= "SOUTHPOLE" then
+            local dist = (pos - campPos).Magnitude
+            if dist < shortestDistance then
+                shortestDistance = dist
+                closestCamp = campName
             end
+        end
+    end
+    
+    return closestCamp
+end
+
+local function TryDrink()
+    local character = LocalPlayer.Character
+    if not character then return false end
+    
+    local waterBottle = character:FindFirstChild("Water Bottle")
+    if waterBottle and waterBottle:FindFirstChild("RemoteEvent") then
+        waterBottle.RemoteEvent:FireServer()
+        return true
+    end
+    return false
+end
+
+local function FillBottleAtCamp(campName)
+    local wasAutoJumping = State.AutoJump
+    local properCampName = CampMapping[campName] or campName
+    local fillLocation = BottlePoints[campName]
+    
+    if fillLocation then
+        State.AutoJump = false
+        
+        local character = LocalPlayer.Character
+        local backpack = LocalPlayer:WaitForChild("Backpack")
+        local waterBottle = character:FindFirstChild("Water Bottle") or backpack:FindFirstChild("Water Bottle")
+        
+        if waterBottle and waterBottle:IsA("Tool") then
+            if waterBottle.Parent == backpack then
+                local humanoid = character:WaitForChild("Humanoid")
+                humanoid:EquipTool(waterBottle)
+                task.wait(0.3)
+            end
+            
+            SafeTeleport(fillLocation)
+            task.wait(0.3)
+            
+            local args = {"FillBottle", properCampName, "Water"}
+            ReplicatedStorage:WaitForChild("Events"):WaitForChild("EnergyHydration"):FireServer(unpack(args))
             task.wait(0.5)
             
-            if tool:FindFirstChild("RemoteEvent") then
-                tool.RemoteEvent:FireServer()
-                task.wait(1)
+            if Waypoints[campName] then
+                SafeTeleport(Waypoints[campName])
+            end
+        end
+        
+        State.AutoJump = wasAutoJumping
+        if wasAutoJumping then
+            task.spawn(function()
+                while State.AutoJump do
+                    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                        LocalPlayer.Character.Humanoid.Jump = true
+                    end
+                    task.wait(0.5)
+                end
+            end)
+        end
+    end
+end
+
+task.spawn(function()
+    RunService.RenderStepped:Connect(function()
+        if not State.AutoHydration then return end
+        
+        local hydration = LocalPlayer:GetAttribute("Hydration")
+        if hydration then
+            if hydration >= 99 then return end
+            
+            if hydration < 50 then
+                local beforeDrinkHydration = hydration
+                TryDrink()
+                task.wait(0.3)
                 
-                if (LocalPlayer:GetAttribute("Hydration") or 0) <= currentHydration then
-                    local myPos = LocalPlayer.Character.HumanoidRootPart.Position
-                    if (myPos - Waypoints["SOUTHPOLE"]).Magnitude > 500 then
-                        local nearest, minDist = "BASE", math.huge
+                local afterDrinkHydration = LocalPlayer:GetAttribute("Hydration")
+                local hydrationIncreased = afterDrinkHydration > beforeDrinkHydration
+                
+                if hydrationIncreased then
+                    while LocalPlayer:GetAttribute("Hydration") < 99 do
+                        local currentHydration = LocalPlayer:GetAttribute("Hydration")
+                        local success = TryDrink()
+                        task.wait(0.3)
+                        local newHydration = LocalPlayer:GetAttribute("Hydration")
                         
-                        for name, pos in pairs(BottlePoints) do
-                            local dist = (myPos - pos).Magnitude
-                            if dist < minDist then minDist = dist; nearest = name end
+                        if newHydration >= 99 then break end
+                        
+                        if not success or newHydration <= currentHydration then
+                            local nearestCamp = GetNearestCamp()
+                            if nearestCamp then
+                                FillBottleAtCamp(nearestCamp)
+                                task.wait(0.3)
+                                TryDrink()
+                            end
+                            break
                         end
-                        
-                        local savedPos = myPos
-                        local oldJump = State.AutoJump
-                        State.AutoJump = false
-                        
-                        SafeTeleport(BottlePoints[nearest])
-                        task.wait(0.5)
-                        ReplicatedStorage.Events.EnergyHydration:FireServer("FillBottle", CampMapping[nearest], "Water")
-                        task.wait(1)
-                        SafeTeleport(savedPos)
-                        
-                        State.AutoJump = oldJump
-                        if State.AutoJump then
-                            task.spawn(function()
-                                while State.AutoJump do
-                                    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-                                        LocalPlayer.Character.Humanoid.Jump = true
-                                    end
-                                    task.wait(0.5)
-                                end
-                            end)
+                        task.wait(0.2)
+                    end
+                else
+                    local nearestCamp = GetNearestCamp()
+                    if nearestCamp then
+                        FillBottleAtCamp(nearestCamp)
+                        task.wait(0.3)
+                        while LocalPlayer:GetAttribute("Hydration") < 99 do
+                            local currentHydration = LocalPlayer:GetAttribute("Hydration")
+                            if currentHydration >= 99 then break end
+                            
+                            local success = TryDrink()
+                            task.wait(0.3)
+                            local newHydration = LocalPlayer:GetAttribute("Hydration")
+                            if not success or newHydration <= currentHydration then break end
+                            task.wait(0.2)
                         end
                     end
                 end
             end
         end
+    end)
+end)
+
+local function RespawnCharacter()
+    local wasAutoTeleporting = State.AutoTeleport
+    State.AutoTeleport = false
+    State.AutoJump = false
+    
+    local args = {"Died"}
+    ReplicatedStorage:WaitForChild("Events"):WaitForChild("CharacterHandler"):FireServer(unpack(args))
+    
+    local newCharacter = LocalPlayer.CharacterAdded:Wait()
+    newCharacter:WaitForChild("Humanoid")
+    newCharacter:WaitForChild("HumanoidRootPart")
+    task.wait(1)
+    
+    HookCharacter(newCharacter)
+    
+    if wasAutoTeleporting then
+        State.AutoTeleport = true
+        State.AutoJump = true
+        Notify("Auto Complete", "Resumed after respawn ▶️", 2)
     end
 end
 
 local function StartLoop()
     State.AutoTeleport = true
     State.AutoJump = true
-    
-    task.spawn(function()
-        while State.AutoTeleport do
-            if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then 
-                LocalPlayer.CharacterAdded:Wait()
-                task.wait(1)
-            end
-            
-            if State.CurrentCheckpoint <= #CheckpointOrder then
-                SafeTeleport(Waypoints[CheckpointOrder[State.CurrentCheckpoint]])
-                task.wait(0.8)
-            else
-                Notify("Winner", "Loop Finished! Resetting...", 3)
-                task.wait(1)
-                
-                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-                    LocalPlayer.Character.Humanoid.Health = 0
-                end
-                
-                LocalPlayer.CharacterAdded:Wait()
-                task.wait(3)
-                
-                if State.AutoTeleport then
-                    State.CurrentCheckpoint = 1
-                    LocalPlayer:RequestStreamAroundAsync(Waypoints["CAMP1"])
-                    SafeTeleport(Waypoints["CAMP1"])
-                else
-                    break
-                end
-            end
-        end
-    end)
     
     task.spawn(function()
         while State.AutoJump do
@@ -253,30 +370,70 @@ local function StartLoop()
             task.wait(0.5)
         end
     end)
-end
-
-task.spawn(function()
-    while true do
-        task.wait(2)
-        if State.AutoHydration then
-            pcall(ProcessHydration)
-        end
-    end
-end)
-
-if ReplicatedStorage:FindFirstChild("Message_Remote") then
-    ReplicatedStorage.Message_Remote.OnClientEvent:Connect(function(msg)
-        if not State.AutoTeleport then return end
-        if string.find(msg, "made it to Camp") then
-            State.CurrentCheckpoint = State.CurrentCheckpoint + 1
-        elseif string.find(msg, "South Pole") then
-            State.CurrentCheckpoint = #CheckpointOrder + 1
+    
+    task.spawn(function()
+        while State.AutoTeleport do
+            if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then 
+                LocalPlayer.CharacterAdded:Wait()
+                task.wait(1)
+            end
+            
+            if State.CurrentCheckpoint <= #CheckpointOrder then
+                local targetCamp = CheckpointOrder[State.CurrentCheckpoint]
+                Notify("Progress", "Going to " .. targetCamp .. "...", 2)
+                
+                SafeTeleport(Waypoints[targetCamp])
+                
+                State.WaitingForConfirmation = true
+                local timeout = 0
+                while State.WaitingForConfirmation and State.AutoTeleport and timeout < 30 do
+                    task.wait(1)
+                    timeout = timeout + 1
+                end
+                
+                if timeout >= 30 then
+                    Notify("Warning", "Confirmation timeout, moving on...", 2)
+                    State.CurrentCheckpoint = State.CurrentCheckpoint + 1
+                    State.WaitingForConfirmation = false
+                end
+                
+            else
+                Notify("Winner", "South Pole Reached! Resetting...", 3)
+                task.wait(1)
+                RespawnCharacter()
+                task.wait(3)
+                
+                if State.AutoTeleport then
+                    State.CurrentCheckpoint = 1
+                    LocalPlayer:RequestStreamAroundAsync(Waypoints["CAMP1"])
+                    Notify("Loop", "Restarting from Camp 1...", 2)
+                else
+                    break
+                end
+            end
         end
     end)
 end
 
+if ReplicatedStorage:FindFirstChild("Message_Remote") then
+    ReplicatedStorage.Message_Remote.OnClientEvent:Connect(function(msg)
+        if not State.AutoTeleport then return end
+        
+        if string.find(msg, "made it to Camp") then
+            State.WaitingForConfirmation = false
+            State.CurrentCheckpoint = State.CurrentCheckpoint + 1
+            Notify("Checkpoint", "Confirmed! Moving to next camp", 2)
+        elseif string.find(msg, "South Pole") then
+            State.WaitingForConfirmation = false
+            State.CurrentCheckpoint = #CheckpointOrder + 1
+            Notify("Victory", "South Pole Confirmed!", 2)
+        end
+    end)
+end
+
+-- ========== GUI CREATION - CLEANED UP ==========
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "Arcan1ST_"
+ScreenGui.Name = "Arcan1ST_Hub"
 ScreenGui.Parent = CoreGui
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
@@ -288,6 +445,8 @@ MainFrame.Position = UDim2.new(0.08, 0, 0.25, 0)
 MainFrame.BackgroundColor3 = SETTINGS.THEME.Main
 MainFrame.BorderSizePixel = 0
 MainFrame.ClipsDescendants = true
+MainFrame.Active = true
+MainFrame.Draggable = true
 local MainCorner = Instance.new("UICorner", MainFrame)
 MainCorner.CornerRadius = UDim.new(0, 10)
 local MainStroke = Instance.new("UIStroke", MainFrame)
@@ -394,32 +553,6 @@ local IconStroke = Instance.new("UIStroke", TargetIcon)
 IconStroke.Color = SETTINGS.THEME.Accent
 IconStroke.Thickness = 2
 
-local isDragging, dragStart, startPos = false, nil, nil
-
-TitleBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        isDragging = true
-        dragStart = input.Position
-        startPos = MainFrame.Position
-    end
-end)
-
-TitleBar.InputChanged:Connect(function(input)
-    if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local delta = input.Position - dragStart
-        MainFrame.Position = UDim2.new(
-            startPos.X.Scale, startPos.X.Offset + delta.X,
-            startPos.Y.Scale, startPos.Y.Offset + delta.Y
-        )
-    end
-end)
-
-TitleBar.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        isDragging = false
-    end
-end)
-
 local isMinimized = false
 MinimizeBtn.MouseButton1Click:Connect(function()
     isMinimized = not isMinimized
@@ -450,6 +583,7 @@ CloseBtn.MouseButton1Click:Connect(function()
     State.AutoTeleport = false
     State.AutoJump = false
     State.AutoHydration = false
+    EnsureCharacterCanMove()
     ScreenGui:Destroy()
     getgenv().Arcan1ST_Running = false
 end)
@@ -494,7 +628,7 @@ CreateBtn("💧 Auto Hydration: OFF", Color3.fromRGB(70, 70, 85), function(b)
     b.BackgroundColor3 = State.AutoHydration and Color3.fromRGB(0, 200, 255) or Color3.fromRGB(70, 70, 85)
 end)
 
-local speedBtn = CreateBtn("⚙️ Mode: BLATANT (Instant)", Color3.fromRGB(120, 50, 200), function(b)
+CreateBtn("⚙️ Mode: BLATANT (Instant)", Color3.fromRGB(120, 50, 200), function(b)
     if SETTINGS.TWEEN_SPEED == 0 then
         SETTINGS.TWEEN_SPEED = 500
         b.Text = "⚙️ Mode: LEGIT (Tween)"
@@ -512,6 +646,7 @@ CreateBtn("🚀 START AUTO LOOP", SETTINGS.THEME.Accent, function(b)
     if State.AutoTeleport then
         State.AutoTeleport = false
         State.AutoJump = false
+        EnsureCharacterCanMove()
         b.Text = "🚀 START AUTO LOOP"
         b.BackgroundColor3 = SETTINGS.THEME.Accent
         Notify("Arcan1ST", "Loop Stopped")
@@ -538,4 +673,28 @@ end
 if SETTINGS.FPS_BOOST_AUTO then SmartBoostFPS() end
 HookCharacter(LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait())
 LocalPlayer.CharacterAdded:Connect(HookCharacter)
-Notify("Arcan1ST", " Edition Loaded! ✅", 3)
+
+task.spawn(function()
+    if LocalPlayer.Character then
+        EnsureCharacterCanMove()
+    end
+    
+    LocalPlayer.CharacterAdded:Connect(function(char)
+        task.wait(0.5)
+        EnsureCharacterCanMove()
+    end)
+    
+    task.spawn(function()
+        while task.wait(1) do
+            if LocalPlayer.Character then
+                local rootPart = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
+                if rootPart and rootPart.Anchored or (humanoid and humanoid.PlatformStand) then
+                    EnsureCharacterCanMove()
+                end
+            end
+        end
+    end)
+end)
+
+Notify("Arcan1ST", "Fixed Edition Loaded! ✅", 3)
