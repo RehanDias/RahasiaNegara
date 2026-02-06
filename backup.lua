@@ -1,29 +1,16 @@
---[[ 
-    ARCAN1ST HUB - FIXED EDITION
-    Features: Smart FPS Boost, Anti-AFK, Enhanced GUI, Auto Progress Detection
-]]
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/RehanDias/UIR/refs/heads/main/test.lua"))()
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Lighting = game:GetService("Lighting")
 local RunService = game:GetService("RunService")
-local CoreGui = game:GetService("CoreGui")
 local TweenService = game:GetService("TweenService")
 local VirtualUser = game:GetService("VirtualUser")
 local StarterGui = game:GetService("StarterGui")
-local UserInputService = game:GetService("UserInputService")
 
 local SETTINGS = {
     FPS_BOOST_AUTO = false,
-    WAIT_FOR_LOAD = true,
-    TWEEN_SPEED = 0,
-    THEME = {
-        Main = Color3.fromRGB(20, 20, 25),
-        TitleBar = Color3.fromRGB(30, 30, 40),
-        Accent = Color3.fromRGB(0, 255, 128),
-        Text = Color3.fromRGB(240, 240, 240),
-        Button = Color3.fromRGB(45, 45, 55)
-    }
+    TWEEN_SPEED = 0
 }
 
 if getgenv().Arcan1ST_Running then
@@ -431,246 +418,93 @@ if ReplicatedStorage:FindFirstChild("Message_Remote") then
     end)
 end
 
--- ========== GUI CREATION - CLEANED UP ==========
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "Arcan1ST_Hub"
-ScreenGui.Parent = CoreGui
-ScreenGui.ResetOnSpawn = false
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+local Window = Library:CreateWindow({
+    Name = "ARCAN1ST HUB",
+    LoadingTitle = "Loading...",
+    LoadingSubtitle = "by Arcan1ST",
+    ConfigurationSaving = {
+        Enabled = false
+    },
+    Discord = {
+        Enabled = false
+    },
+    KeySystem = false
+})
 
-local MainFrame = Instance.new("Frame", ScreenGui)
-MainFrame.Name = "MainWindow"
-MainFrame.Size = UDim2.new(0, 240, 0, 400)
-MainFrame.Position = UDim2.new(0.08, 0, 0.25, 0)
-MainFrame.BackgroundColor3 = SETTINGS.THEME.Main
-MainFrame.BorderSizePixel = 0
-MainFrame.ClipsDescendants = true
-MainFrame.Active = true
-MainFrame.Draggable = true
-local MainCorner = Instance.new("UICorner", MainFrame)
-MainCorner.CornerRadius = UDim.new(0, 10)
-local MainStroke = Instance.new("UIStroke", MainFrame)
-MainStroke.Color = SETTINGS.THEME.Accent
-MainStroke.Thickness = 2
+local MainTab = Window:CreateTab("🏠 Main", nil)
+local TeleportTab = Window:CreateTab("📍 Teleport", nil)
 
-local TitleBar = Instance.new("Frame", MainFrame)
-TitleBar.Name = "TitleBar"
-TitleBar.Size = UDim2.new(1, 0, 0, 40)
-TitleBar.BackgroundColor3 = SETTINGS.THEME.TitleBar
-TitleBar.BorderSizePixel = 0
-local TitleCorner = Instance.new("UICorner", TitleBar)
-TitleCorner.CornerRadius = UDim.new(0, 10)
-local TitleBarBottom = Instance.new("Frame", TitleBar)
-TitleBarBottom.Size = UDim2.new(1, 0, 0, 10)
-TitleBarBottom.Position = UDim2.new(0, 0, 1, -10)
-TitleBarBottom.BackgroundColor3 = SETTINGS.THEME.TitleBar
-TitleBarBottom.BorderSizePixel = 0
+local MainSection = MainTab:CreateSection("Main Features")
 
-local TitleIcon = Instance.new("TextLabel", TitleBar)
-TitleIcon.Size = UDim2.new(0, 30, 0, 30)
-TitleIcon.Position = UDim2.new(0, 5, 0, 5)
-TitleIcon.BackgroundTransparency = 1
-TitleIcon.Text = "🎯"
-TitleIcon.TextSize = 20
-TitleIcon.Font = Enum.Font.GothamBold
-
-local TitleText = Instance.new("TextLabel", TitleBar)
-TitleText.Size = UDim2.new(1, -100, 1, 0)
-TitleText.Position = UDim2.new(0, 40, 0, 0)
-TitleText.BackgroundTransparency = 1
-TitleText.Text = "ARCAN1ST"
-TitleText.TextColor3 = Color3.new(1, 1, 1)
-TitleText.Font = Enum.Font.GothamBold
-TitleText.TextSize = 15
-TitleText.TextXAlignment = Enum.TextXAlignment.Left
-
-local TitleAccent = Instance.new("TextLabel", TitleBar)
-TitleAccent.Size = UDim2.new(0, 40, 1, 0)
-TitleAccent.Position = UDim2.new(0, 110, 0, 0)
-TitleAccent.BackgroundTransparency = 1
-TitleAccent.Text = "HUB"
-TitleAccent.TextColor3 = SETTINGS.THEME.Accent
-TitleAccent.Font = Enum.Font.GothamBold
-TitleAccent.TextSize = 15
-TitleAccent.TextXAlignment = Enum.TextXAlignment.Left
-
-local MinimizeBtn = Instance.new("TextButton", TitleBar)
-MinimizeBtn.Name = "MinimizeBtn"
-MinimizeBtn.Size = UDim2.new(0, 28, 0, 28)
-MinimizeBtn.Position = UDim2.new(1, -62, 0, 6)
-MinimizeBtn.BackgroundColor3 = Color3.fromRGB(50, 120, 200)
-MinimizeBtn.Text = "−"
-MinimizeBtn.TextColor3 = Color3.new(1, 1, 1)
-MinimizeBtn.Font = Enum.Font.GothamBold
-MinimizeBtn.TextSize = 18
-Instance.new("UICorner", MinimizeBtn).CornerRadius = UDim.new(0, 6)
-
-local CloseBtn = Instance.new("TextButton", TitleBar)
-CloseBtn.Name = "CloseBtn"
-CloseBtn.Size = UDim2.new(0, 28, 0, 28)
-CloseBtn.Position = UDim2.new(1, -28, 0, 6)
-CloseBtn.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
-CloseBtn.Text = "×"
-CloseBtn.TextColor3 = Color3.new(1, 1, 1)
-CloseBtn.Font = Enum.Font.GothamBold
-CloseBtn.TextSize = 20
-Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
-
-local ContentFrame = Instance.new("Frame", MainFrame)
-ContentFrame.Name = "ContentFrame"
-ContentFrame.Size = UDim2.new(1, 0, 1, -40)
-ContentFrame.Position = UDim2.new(0, 0, 0, 40)
-ContentFrame.BackgroundColor3 = SETTINGS.THEME.Main
-ContentFrame.BorderSizePixel = 0
-
-local ScrollFrame = Instance.new("ScrollingFrame", ContentFrame)
-ScrollFrame.Size = UDim2.new(1, -10, 1, -10)
-ScrollFrame.Position = UDim2.new(0, 5, 0, 5)
-ScrollFrame.BackgroundTransparency = 1
-ScrollFrame.BorderSizePixel = 0
-ScrollFrame.ScrollBarThickness = 4
-ScrollFrame.ScrollBarImageColor3 = SETTINGS.THEME.Accent
-ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-ScrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
-
-local UIList = Instance.new("UIListLayout", ScrollFrame)
-UIList.Padding = UDim.new(0, 7)
-UIList.SortOrder = Enum.SortOrder.LayoutOrder
-UIList.HorizontalAlignment = Enum.HorizontalAlignment.Center
-
-local TargetIcon = Instance.new("TextButton", ScreenGui)
-TargetIcon.Name = "TargetIcon"
-TargetIcon.Size = UDim2.new(0, 55, 0, 55)
-TargetIcon.Position = UDim2.new(0.08, 0, 0.25, 0)
-TargetIcon.BackgroundColor3 = SETTINGS.THEME.TitleBar
-TargetIcon.Text = "🎯"
-TargetIcon.TextSize = 28
-TargetIcon.Font = Enum.Font.GothamBold
-TargetIcon.TextColor3 = SETTINGS.THEME.Accent
-TargetIcon.Visible = false
-Instance.new("UICorner", TargetIcon).CornerRadius = UDim.new(0, 27)
-local IconStroke = Instance.new("UIStroke", TargetIcon)
-IconStroke.Color = SETTINGS.THEME.Accent
-IconStroke.Thickness = 2
-
-local isMinimized = false
-MinimizeBtn.MouseButton1Click:Connect(function()
-    isMinimized = not isMinimized
-    local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-    
-    if isMinimized then
-        TweenService:Create(MainFrame, tweenInfo, {Size = UDim2.new(0, 240, 0, 40)}):Play()
-        task.wait(0.3)
-        MainFrame.Visible = false
-        TargetIcon.Visible = true
-        TargetIcon.Position = MainFrame.Position
-    else
-        MainFrame.Visible = true
-        TargetIcon.Visible = false
-        TweenService:Create(MainFrame, tweenInfo, {Size = UDim2.new(0, 240, 0, 400)}):Play()
+MainTab:CreateButton({
+    Name = "⚡ Boost FPS (Safe)",
+    Callback = function()
+        SmartBoostFPS()
     end
-end)
+})
 
-TargetIcon.MouseButton1Click:Connect(function()
-    isMinimized = false
-    MainFrame.Visible = true
-    TargetIcon.Visible = false
-    TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), 
-        {Size = UDim2.new(0, 240, 0, 400)}):Play()
-end)
-
-CloseBtn.MouseButton1Click:Connect(function()
-    State.AutoTeleport = false
-    State.AutoJump = false
-    State.AutoHydration = false
-    EnsureCharacterCanMove()
-    ScreenGui:Destroy()
-    getgenv().Arcan1ST_Running = false
-end)
-
-local function CreateBtn(text, col, func)
-    local btn = Instance.new("TextButton", ScrollFrame)
-    btn.Size = UDim2.new(0.95, 0, 0, 36)
-    btn.Text = text
-    btn.BackgroundColor3 = col
-    btn.TextColor3 = Color3.new(1, 1, 1)
-    btn.Font = Enum.Font.GothamSemibold
-    btn.TextSize = 12
-    btn.AutoButtonColor = false
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 7)
-    
-    btn.MouseEnter:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(
-            math.min(col.R * 255 + 25, 255),
-            math.min(col.G * 255 + 25, 255),
-            math.min(col.B * 255 + 25, 255)
-        ) / 255}):Play()
-    end)
-    
-    btn.MouseLeave:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = col}):Play()
-    end)
-    
-    btn.MouseButton1Click:Connect(function() func(btn) end)
-    return btn
-end
-
-CreateBtn("⚡ BOOST FPS (SAFE)", Color3.fromRGB(255, 150, 0), function(b)
-    SmartBoostFPS()
-    b.Text = "✅ FPS BOOSTED"
-    task.wait(1.5)
-    b.Text = "⚡ BOOST FPS (SAFE)"
-end)
-
-CreateBtn("💧 Auto Hydration: OFF", Color3.fromRGB(70, 70, 85), function(b)
-    State.AutoHydration = not State.AutoHydration
-    b.Text = State.AutoHydration and "💧 Auto Hydration: ON" or "💧 Auto Hydration: OFF"
-    b.BackgroundColor3 = State.AutoHydration and Color3.fromRGB(0, 200, 255) or Color3.fromRGB(70, 70, 85)
-end)
-
-CreateBtn("⚙️ Mode: BLATANT (Instant)", Color3.fromRGB(120, 50, 200), function(b)
-    if SETTINGS.TWEEN_SPEED == 0 then
-        SETTINGS.TWEEN_SPEED = 500
-        b.Text = "⚙️ Mode: LEGIT (Tween)"
-        b.BackgroundColor3 = Color3.fromRGB(50, 150, 200)
-        Notify("Mode", "Legit Mode (500 speed)")
-    else
-        SETTINGS.TWEEN_SPEED = 0
-        b.Text = "⚙️ Mode: BLATANT (Instant)"
-        b.BackgroundColor3 = Color3.fromRGB(120, 50, 200)
-        Notify("Mode", "Blatant Mode (Instant TP)")
+MainTab:CreateToggle({
+    Name = "💧 Auto Hydration",
+    CurrentValue = false,
+    Flag = "AutoHydration",
+    Callback = function(Value)
+        State.AutoHydration = Value
+        if Value then
+            Notify("Auto Hydration", "Enabled", 2)
+        else
+            Notify("Auto Hydration", "Disabled", 2)
+        end
     end
-end)
+})
 
-CreateBtn("🚀 START AUTO LOOP", SETTINGS.THEME.Accent, function(b)
-    if State.AutoTeleport then
-        State.AutoTeleport = false
-        State.AutoJump = false
-        EnsureCharacterCanMove()
-        b.Text = "🚀 START AUTO LOOP"
-        b.BackgroundColor3 = SETTINGS.THEME.Accent
-        Notify("Arcan1ST", "Loop Stopped")
-    else
-        StartLoop()
-        b.Text = "⏹ STOP LOOP"
-        b.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
-        Notify("Arcan1ST", "Loop Started")
+MainTab:CreateToggle({
+    Name = "⚙️ Legit Mode (Tween)",
+    CurrentValue = false,
+    Flag = "LegitMode",
+    Callback = function(Value)
+        if Value then
+            SETTINGS.TWEEN_SPEED = 500
+            Notify("Mode", "Legit Mode (500 speed)", 2)
+        else
+            SETTINGS.TWEEN_SPEED = 0
+            Notify("Mode", "Blatant Mode (Instant TP)", 2)
+        end
     end
-end)
+})
 
-local Divider = Instance.new("Frame", ScrollFrame)
-Divider.Size = UDim2.new(0.9, 0, 0, 2)
-Divider.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-Divider.BorderSizePixel = 0
+MainTab:CreateToggle({
+    Name = "🚀 Auto Loop (Start)",
+    CurrentValue = false,
+    Flag = "AutoLoop",
+    Callback = function(Value)
+        if Value then
+            StartLoop()
+            Notify("Arcan1ST", "Loop Started", 2)
+        else
+            State.AutoTeleport = false
+            State.AutoJump = false
+            EnsureCharacterCanMove()
+            Notify("Arcan1ST", "Loop Stopped", 2)
+        end
+    end
+})
+
+local TeleportSection = TeleportTab:CreateSection("Camp Teleports")
 
 for _, camp in ipairs(CheckpointOrder) do
-    CreateBtn("📍 " .. camp, Color3.fromRGB(60, 60, 90), function()
-        SafeTeleport(Waypoints[camp])
-        Notify("Teleport", "Moved to " .. camp)
-    end)
+    TeleportTab:CreateButton({
+        Name = "→ " .. camp,
+        Callback = function()
+            SafeTeleport(Waypoints[camp])
+            Notify("Teleport", "Moved to " .. camp, 2)
+        end
+    })
 end
 
-if SETTINGS.FPS_BOOST_AUTO then SmartBoostFPS() end
+if SETTINGS.FPS_BOOST_AUTO then 
+    SmartBoostFPS() 
+end
+
 HookCharacter(LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait())
 LocalPlayer.CharacterAdded:Connect(HookCharacter)
 
@@ -697,4 +531,4 @@ task.spawn(function()
     end)
 end)
 
-Notify("Arcan1ST", "Fixed Edition Loaded! ✅", 3)
+Notify("Arcan1ST", "Loaded Successfully! ✅", 3)
