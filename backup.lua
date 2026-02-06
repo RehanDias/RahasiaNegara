@@ -1,17 +1,48 @@
---[[ SERVICES ]] --
+--[[ 
+    ARCAN1ST HUB -  REMASTERED EDITION
+    OPTIMIZED FOR: Performance, Safety, & Stability
+    Features: Smart FPS Boost, Anti-AFK, Enhanced GUI with Minimize, Legit/Blatant Mode
+]]
+
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Lighting = game:GetService("Lighting")
 local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
+local TweenService = game:GetService("TweenService")
+local VirtualUser = game:GetService("VirtualUser")
+local StarterGui = game:GetService("StarterGui")
 
---[[ VARIABLES ]] --
-local player = Players.LocalPlayer
-local hydrationThreshold = 50
-local isAutoHydrationEnabled = true
--- Add cache for validated positions
-local validatedPositions = {}
+local SETTINGS = {
+    FPS_BOOST_AUTO = false,
+    WAIT_FOR_LOAD = true,
+    TWEEN_SPEED = 0,
+    THEME = {
+        Main = Color3.fromRGB(20, 20, 25),
+        TitleBar = Color3.fromRGB(30, 30, 40),
+        Accent = Color3.fromRGB(0, 255, 128),
+        Text = Color3.fromRGB(240, 240, 240),
+        Button = Color3.fromRGB(45, 45, 55)
+    }
+}
 
---[[ TELEPORT LOCATIONS ]] --
-local teleportPoints = {
+if getgenv().Arcan1ST_Running then
+    StarterGui:SetCore("SendNotification", {
+        Title = "Arcan1ST", Text = "Script Already Running!", Duration = 3
+    })
+    return
+end
+getgenv().Arcan1ST_Running = true
+
+local LocalPlayer = Players.LocalPlayer
+local State = {
+    AutoTeleport = false,
+    AutoJump = false,
+    AutoHydration = false,
+    CurrentCheckpoint = 1
+}
+
+local Waypoints = {
     ["BASE"] = Vector3.new(-6016.00, -159.00, -28.57),
     ["CAMP1"] = Vector3.new(-3720.19, 225.00, 235.91),
     ["CAMP2"] = Vector3.new(1790.79, 105.45, -136.89),
@@ -20,8 +51,7 @@ local teleportPoints = {
     ["SOUTHPOLE"] = Vector3.new(10993.19, 549.13, 100.13)
 }
 
--- Water bottle fill locations
-local fillBottleLocations = {
+local BottlePoints = {
     ["BASE"] = Vector3.new(-6042.84, -158.95, -59.00),
     ["CAMP1"] = Vector3.new(-3718.06, 228.94, 261.38),
     ["CAMP2"] = Vector3.new(1799.14, 105.37, -161.86),
@@ -29,965 +59,483 @@ local fillBottleLocations = {
     ["CAMP4"] = Vector3.new(9000.03, 597.40, 88.02)
 }
 
-local campNameMapping = {
-    ["BASE"] = "BaseCamp",
-    ["CAMP1"] = "Camp1",
-    ["CAMP2"] = "Camp2",
-    ["CAMP3"] = "Camp3",
-    ["CAMP4"] = "Camp4"
+local CampMapping = {
+    ["BASE"] = "BaseCamp", ["CAMP1"] = "Camp1", 
+    ["CAMP2"] = "Camp2", ["CAMP3"] = "Camp3", ["CAMP4"] = "Camp4"
 }
+local CheckpointOrder = {"CAMP1", "CAMP2", "CAMP3", "CAMP4", "SOUTHPOLE"}
 
-local checkpointOrder = {"CAMP1", "CAMP2", "CAMP3", "CAMP4", "SOUTHPOLE"}
-local currentCheckpoint = 1
-local isAutoTeleporting = false
-local isAutoJumping = false
+LocalPlayer.Idled:Connect(function()
+    VirtualUser:CaptureController()
+    VirtualUser:ClickButton2(Vector2.new())
+end)
 
---[[ FIND NEAREST CHECKPOINT ]] --
-local function findNearestCheckpoint()
-    local player = game.Players.LocalPlayer
-    if not player then
-        return 1
-    end
-
-    -- Wait for character to load if not present
-    if not player.Character then
-        player.CharacterAdded:Wait()
-    end
-
-    local character = player.Character
-    if not character then
-        return 1
-    end
-
-    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
-    if not humanoidRootPart then
-        return 1
-    end
-
-    local currentPos = humanoidRootPart.Position
-    local nearestDist = math.huge
-    local nearestIndex = 1
-
-    for i, checkpointName in ipairs(checkpointOrder) do
-        local checkpointPos = teleportPoints[checkpointName]
-        local dist = (currentPos - checkpointPos).Magnitude
-        if dist < nearestDist then
-            nearestDist = dist
-            nearestIndex = i
-        end
-    end
-
-    return nearestIndex
+local function Notify(title, text, dur)
+    StarterGui:SetCore("SendNotification", {
+        Title = title, Text = text, Duration = dur or 2
+    })
 end
 
---[[ AUTO JUMP FUNCTION ]] --
-local function startAutoJump()
-    spawn(function()
-        while isAutoJumping do
-            local player = game.Players.LocalPlayer
-            if player and player.Character then
-                local humanoid = player.Character:FindFirstChild("Humanoid")
-                if humanoid then
-                    humanoid.Jump = true
+local function SmartBoostFPS()
+    Lighting.GlobalShadows = false
+    Lighting.FogEnd = 9e9
+    Lighting.Brightness = 2
+    
+    for _, v in pairs(Lighting:GetChildren()) do
+        if v:IsA("PostEffect") or v:IsA("Atmosphere") or v:IsA("Sky") then
+            pcall(function() v.Enabled = false end)
+        end
+    end
+    
+    for _, v in pairs(workspace:GetDescendants()) do
+        if v:IsA("BasePart") and not v.Parent:FindFirstChild("Humanoid") then
+            v.Material = Enum.Material.SmoothPlastic
+            v.Reflectance = 0
+            v.CastShadow = false
+        elseif v:IsA("Texture") or v:IsA("Decal") then
+            v.Transparency = 1
+        elseif v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Smoke") or v:IsA("Fire") then
+            v.Enabled = false
+        end
+    end
+    
+    workspace.Terrain.WaterWaveSize = 0
+    workspace.Terrain.WaterReflectance = 0
+    workspace.Terrain.WaterTransparency = 0
+    
+    Notify("FPS Booster", "Safe Mode Activated 🚀")
+end
+
+local function SafeTeleport(targetPos)
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    
+    local root = char.HumanoidRootPart
+    root.Velocity = Vector3.zero 
+    root.AssemblyLinearVelocity = Vector3.zero
+    
+    LocalPlayer:RequestStreamAroundAsync(targetPos)
+    
+    local finalCFrame = CFrame.new(targetPos + Vector3.new(0, 5, 0))
+
+    if SETTINGS.TWEEN_SPEED > 0 then
+        local distance = (root.Position - targetPos).Magnitude
+        local duration = distance / SETTINGS.TWEEN_SPEED
+        local info = TweenInfo.new(duration, Enum.EasingStyle.Linear)
+        local tween = TweenService:Create(root, info, {CFrame = finalCFrame})
+        tween:Play()
+        task.wait(duration)
+    else
+        task.wait(0.5)
+        root.CFrame = finalCFrame
+    end
+end
+
+local function HookCharacter(char)
+    local hum = char:WaitForChild("Humanoid", 10)
+    if not hum then return end
+    
+    hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+    hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+    
+    for _, v in pairs(char:GetChildren()) do
+        if v:IsA("Script") and (v.Name:find("Damage") or v.Name:find("Fall")) then
+            pcall(function() v.Disabled = true end)
+        end
+    end
+    
+    local oldHp = hum.Health
+    hum.HealthChanged:Connect(function(newHp)
+        if newHp < oldHp and (oldHp - newHp) > 10 then 
+            hum.Health = oldHp 
+        end
+        oldHp = hum.Health
+    end)
+end
+
+local function ProcessHydration()
+    if not LocalPlayer.Character then return end
+    
+    local currentHydration = LocalPlayer:GetAttribute("Hydration") or 100
+    if currentHydration < 40 then
+        local tool = LocalPlayer.Character:FindFirstChild("Water Bottle") or LocalPlayer.Backpack:FindFirstChild("Water Bottle")
+        
+        if tool then
+            local hum = LocalPlayer.Character:FindFirstChild("Humanoid")
+            if tool.Parent ~= LocalPlayer.Character and hum then 
+                hum:EquipTool(tool) 
+            end
+            task.wait(0.5)
+            
+            if tool:FindFirstChild("RemoteEvent") then
+                tool.RemoteEvent:FireServer()
+                task.wait(1)
+                
+                if (LocalPlayer:GetAttribute("Hydration") or 0) <= currentHydration then
+                    local myPos = LocalPlayer.Character.HumanoidRootPart.Position
+                    if (myPos - Waypoints["SOUTHPOLE"]).Magnitude > 500 then
+                        local nearest, minDist = "BASE", math.huge
+                        
+                        for name, pos in pairs(BottlePoints) do
+                            local dist = (myPos - pos).Magnitude
+                            if dist < minDist then minDist = dist; nearest = name end
+                        end
+                        
+                        local savedPos = myPos
+                        local oldJump = State.AutoJump
+                        State.AutoJump = false
+                        
+                        SafeTeleport(BottlePoints[nearest])
+                        task.wait(0.5)
+                        ReplicatedStorage.Events.EnergyHydration:FireServer("FillBottle", CampMapping[nearest], "Water")
+                        task.wait(1)
+                        SafeTeleport(savedPos)
+                        
+                        State.AutoJump = oldJump
+                        if State.AutoJump then
+                            task.spawn(function()
+                                while State.AutoJump do
+                                    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                                        LocalPlayer.Character.Humanoid.Jump = true
+                                    end
+                                    task.wait(0.5)
+                                end
+                            end)
+                        end
+                    end
                 end
             end
-            wait(0.5)
+        end
+    end
+end
+
+local function StartLoop()
+    State.AutoTeleport = true
+    State.AutoJump = true
+    
+    task.spawn(function()
+        while State.AutoTeleport do
+            if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then 
+                LocalPlayer.CharacterAdded:Wait()
+                task.wait(1)
+            end
+            
+            if State.CurrentCheckpoint <= #CheckpointOrder then
+                SafeTeleport(Waypoints[CheckpointOrder[State.CurrentCheckpoint]])
+                task.wait(0.8)
+            else
+                Notify("Winner", "Loop Finished! Resetting...", 3)
+                task.wait(1)
+                
+                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                    LocalPlayer.Character.Humanoid.Health = 0
+                end
+                
+                LocalPlayer.CharacterAdded:Wait()
+                task.wait(3)
+                
+                if State.AutoTeleport then
+                    State.CurrentCheckpoint = 1
+                    LocalPlayer:RequestStreamAroundAsync(Waypoints["CAMP1"])
+                    SafeTeleport(Waypoints["CAMP1"])
+                else
+                    break
+                end
+            end
+        end
+    end)
+    
+    task.spawn(function()
+        while State.AutoJump do
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                LocalPlayer.Character.Humanoid.Jump = true
+            end
+            task.wait(0.5)
         end
     end)
 end
 
---[[ ANTI FALL DAMAGE SYSTEM ]] --
-local function setupAntiFallDamage()
-    local player = game.Players.LocalPlayer
-    if not player then
-        return
-    end
-
-    local function protectFromDamage(char)
-        if not char then
-            return
-        end
-
-        local humanoid = char:FindFirstChild("Humanoid")
-        if not humanoid then
-            return
-        end
-
-        -- Disable all damage-related states
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.Flying, true)
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.Landed, false)
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.Physics, false)
-
-        -- Connect to health changes but allow respawn
-        local lastHealth = humanoid.Health
-        humanoid.HealthChanged:Connect(function(health)
-            if health < lastHealth and health > 0 then
-                humanoid.Health = lastHealth
-            end
-            lastHealth = health
-        end)
-
-        -- Additional fall damage protection
-        char.ChildAdded:Connect(function(child)
-            if child:IsA("Script") then
-                if child.Name:find("Fall") or child.Name:find("Damage") or child.Name:find("freeze") or
-                    child.Name:find("Water") then
-                    task.wait()
-                    child:Destroy()
-                end
-            end
-        end)
-
-        -- Remove existing damage scripts
-        for _, child in pairs(char:GetChildren()) do
-            if child:IsA("Script") then
-                if child.Name:find("Fall") or child.Name:find("Damage") or child.Name:find("freeze") or
-                    child.Name:find("Water") then
-                    child:Destroy()
-                end
-            end
-        end
-    end
-
-    -- Protect current character
-    if player.Character then
-        protectFromDamage(player.Character)
-    end
-
-    -- Protect future characters
-    player.CharacterAdded:Connect(protectFromDamage)
-end
-
---[[ SAFETY TELEPORT FUNCTION ]] --
-local function waitForTerrain(position)
-    local terrain = workspace.Terrain
-    local radius = 100 -- Radius area to check for obstacles
-
-    -- Wait for terrain and obstacles to load
-    local startTime = tick()
-    local timeout = 5 -- Maximum wait time in seconds
-
-    while tick() - startTime < timeout do
-        local blockFound = false
-
-        -- Check if there's any solid ground below the position
-        local ray = Ray.new(position + Vector3.new(0, 10, 0), Vector3.new(0, -20, 0))
-        local hit, hitPosition = workspace:FindPartOnRay(ray)
-
-        if hit then
-            -- Found solid ground
-            return true
-        end
-
-        task.wait(0.1)
-    end
-
-    return false -- Timeout reached
-end
-
---[[ MOVEMENT HANDLER ]] --
-local function ensureCharacterCanMove()
-    local player = game.Players.LocalPlayer
-    if not player or not player.Character then
-        return
-    end
-
-    local humanoid = player.Character:FindFirstChild("Humanoid")
-    local rootPart = player.Character:FindFirstChild("HumanoidRootPart")
-
-    if humanoid and rootPart then
-        -- Reset movement states
-        rootPart.Anchored = false
-        humanoid.PlatformStand = false
-        humanoid:ChangeState(Enum.HumanoidStateType.Running)
-
-        -- Enable necessary states for movement
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.Running, true)
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, true)
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.Swimming, true)
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
-
-        -- Reset velocities
-        rootPart.Velocity = Vector3.new(0, 0, 0)
-        rootPart.RotVelocity = Vector3.new(0, 0, 0)
-    end
-end
-
-local function instantTeleportTo(position)
-    local player = game.Players.LocalPlayer
-    if not player then
-        return
-    end
-
-    -- Wait for character to load if not present
-    if not player.Character then
-        player.CharacterAdded:Wait()
-    end
-
-    local char = player.Character
-    if not char then
-        return
-    end
-
-    -- Wait for HumanoidRootPart and Humanoid
-    local tries = 0
-    while tries < 10 do
-        local humanoid = char:FindFirstChild("Humanoid")
-        local rootPart = char:FindFirstChild("HumanoidRootPart")
-        if humanoid and rootPart then
-            -- Create position key for cache
-            local posKey = tostring(math.floor(position.X)) .. "," .. tostring(math.floor(position.Y)) .. "," ..
-                               tostring(math.floor(position.Z))
-
-            -- Reset velocities and prepare for teleport
-            rootPart.Velocity = Vector3.new(0, 0, 0)
-            rootPart.RotVelocity = Vector3.new(0, 0, 0)
-
-            -- Check if this position has been validated before
-            if not validatedPositions[posKey] then
-                rootPart.Anchored = true
-
-                -- Teleport slightly above target position
-                local safeHeight = 10
-                local initialPos = position + Vector3.new(0, safeHeight, 0)
-                rootPart.CFrame = CFrame.new(initialPos)
-
-                -- Wait for terrain and obstacles to load
-                local terrainLoaded = waitForTerrain(position)
-
-                if terrainLoaded then
-                    validatedPositions[posKey] = true
-
-                    -- Final teleport
-                    local finalPosition = position + Vector3.new(0, 5, 0)
-                    rootPart.CFrame = CFrame.new(finalPosition)
-
-                    -- Ensure movement is restored
-                    task.wait(0.2)
-                    ensureCharacterCanMove()
-                else
-                    warn("Terrain tidak terload sepenuhnya")
-                    ensureCharacterCanMove()
-                end
-            else
-                -- Position already validated, direct teleport
-                local finalPosition = position + Vector3.new(0, 5, 0)
-                rootPart.CFrame = CFrame.new(finalPosition)
-                task.wait(0.1)
-                ensureCharacterCanMove()
-            end
-            break
-        end
-        tries = tries + 1
-        wait(0.1)
-    end
-end
-
---[[ PRE-DECLARE FUNCTIONS ]] --
-local startAutoTeleport
-local stopAutoTeleport
-
---[[ RESPAWN FUNCTION ]] --
-local function respawnCharacter()
-    local player = game.Players.LocalPlayer
-    local wasAutoTeleporting = isAutoTeleporting
-
-    -- Hentikan semua auto fitur
-    stopAutoTeleport()
-
-    -- Trigger respawn melalui RemoteEvent
-    local args = {"Died"}
-    game:GetService("ReplicatedStorage"):WaitForChild("Events"):WaitForChild("CharacterHandler")
-        :FireServer(unpack(args))
-
-    -- Tunggu sampai karakter benar-benar terload
-    local newCharacter = player.CharacterAdded:Wait()
-    newCharacter:WaitForChild("Humanoid")
-    newCharacter:WaitForChild("HumanoidRootPart")
-    task.wait(0.2)
-
-    -- Aktifkan ulang auto fitur jika sebelumnya aktif
-    if wasAutoTeleporting then
-        startAutoTeleport()
-        game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "Auto Complete",
-            Text = "Resumed after respawn ▶️",
-            Duration = 2
-        })
-    end
-end
-
---[[ AUTO TELEPORT FUNCTION ]] --
-local function startAutoTeleport()
-    if isAutoTeleporting then
-        return
-    end
-
-    currentCheckpoint = findNearestCheckpoint()
-    isAutoTeleporting = true
-    isAutoJumping = true
-    startAutoJump()
-
-    spawn(function()
-        while isAutoTeleporting do
-            if currentCheckpoint <= #checkpointOrder then
-                instantTeleportTo(teleportPoints[checkpointOrder[currentCheckpoint]])
-                wait(0.5)
-            else
-                -- When reaching SOUTHPOLE
-                wait(1)
-                respawnCharacter() -- Respawn instead of teleporting to BASE
-                wait(3) -- Wait for respawn
-                if isAutoTeleporting then
-                    -- Restart from CAMP1 if auto teleport is still enabled
-                    currentCheckpoint = 1
-                    instantTeleportTo(teleportPoints[checkpointOrder[currentCheckpoint]])
-
-                    -- Show restart message
-                    game:GetService("StarterGui"):SetCore("SendNotification", {
-                        Title = "Arcan1ST Script",
-                        Text = "Restarting from CAMP1! 🔄",
-                        Duration = 3
-                    })
-                end
-                break
-            end
-        end
-    end)
-end
-
---[[ CHECKPOINT DETECTION ]] --
-game:GetService("ReplicatedStorage").Message_Remote.OnClientEvent:Connect(function(message)
-    if typeof(message) == "string" then
-        -- Deteksi South Pole
-        if message:find("You have made it to South Pole") then
-            if isAutoTeleporting then
-                -- Show South Pole completion message
-                game:GetService("StarterGui"):SetCore("SendNotification", {
-                    Title = "Arcan1STHub",
-                    Text = "South Pole Reached! 🎯",
-                    Duration = 2
-                })
-
-                wait(1)
-                respawnCharacter() -- Respawn
-                wait(3) -- Wait for respawn
-
-                if isAutoTeleporting then
-                    -- If auto teleport is still on, restart from CAMP1
-                    currentCheckpoint = 1
-                    wait(0.5) -- Tunggu sebentar setelah respawn
-                    instantTeleportTo(teleportPoints[checkpointOrder[currentCheckpoint]])
-                    game:GetService("StarterGui"):SetCore("SendNotification", {
-                        Title = "Arcan1STHub",
-                        Text = "Restarting from CAMP1! 🔄",
-                        Duration = 3
-                    })
-                else
-                    -- Show completion message
-                    game:GetService("StarterGui"):SetCore("SendNotification", {
-                        Title = "Arcan1STHub",
-                        Text = "Journey Completed! 🎉",
-                        Duration = 3
-                    })
-                end
-
-                isAutoJumping = not isAutoTeleporting -- Stop jumping if auto teleport is off
-            end
-            -- Deteksi Camp biasa
-        elseif message:find("You have made it to Camp") then
-            if isAutoTeleporting then
-                -- Show execution message
-                game:GetService("StarterGui"):SetCore("SendNotification", {
-                    Title = "Arcan1STHub",
-                    Text = "Checkpoint Completed! ⭐",
-                    Duration = 2
-                })
-
-                currentCheckpoint = currentCheckpoint + 1
-                if currentCheckpoint <= #checkpointOrder then
-                    wait(0.5) -- Tunggu sebentar sebelum teleport ke checkpoint berikutnya
-                    instantTeleportTo(teleportPoints[checkpointOrder[currentCheckpoint]])
-                end
-            end
+task.spawn(function()
+    while true do
+        task.wait(2)
+        if State.AutoHydration then
+            pcall(ProcessHydration)
         end
     end
 end)
 
---[[ GUI CREATION ]] --
-local ScreenGui = Instance.new("ScreenGui", game.CoreGui)
-ScreenGui.Name = "Arcan1ST-Antartica"
+if ReplicatedStorage:FindFirstChild("Message_Remote") then
+    ReplicatedStorage.Message_Remote.OnClientEvent:Connect(function(msg)
+        if not State.AutoTeleport then return end
+        if string.find(msg, "made it to Camp") then
+            State.CurrentCheckpoint = State.CurrentCheckpoint + 1
+        elseif string.find(msg, "South Pole") then
+            State.CurrentCheckpoint = #CheckpointOrder + 1
+        end
+    end)
+end
 
--- Create MinimizedFrame with proper dragging
-local MinimizedFrame = Instance.new("Frame", ScreenGui)
-MinimizedFrame.Size = UDim2.new(0, 120, 0, 30)
-MinimizedFrame.Position = UDim2.new(0, 50, 0.4, 0)
-MinimizedFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-MinimizedFrame.BorderSizePixel = 0
-MinimizedFrame.Active = true
-MinimizedFrame.Visible = false
-Instance.new("UICorner", MinimizedFrame).CornerRadius = UDim.new(0, 8)
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "Arcan1ST_"
+ScreenGui.Parent = CoreGui
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
--- Create drag handle for MinimizedFrame
-local MinimizedDragArea = Instance.new("Frame", MinimizedFrame)
-MinimizedDragArea.Size = UDim2.new(1, 0, 1, 0)
-MinimizedDragArea.BackgroundTransparency = 1
-MinimizedDragArea.Active = true
+local MainFrame = Instance.new("Frame", ScreenGui)
+MainFrame.Name = "MainWindow"
+MainFrame.Size = UDim2.new(0, 240, 0, 400)
+MainFrame.Position = UDim2.new(0.08, 0, 0.25, 0)
+MainFrame.BackgroundColor3 = SETTINGS.THEME.Main
+MainFrame.BorderSizePixel = 0
+MainFrame.ClipsDescendants = true
+local MainCorner = Instance.new("UICorner", MainFrame)
+MainCorner.CornerRadius = UDim.new(0, 10)
+local MainStroke = Instance.new("UIStroke", MainFrame)
+MainStroke.Color = SETTINGS.THEME.Accent
+MainStroke.Thickness = 2
 
--- Dragging functionality for MinimizedFrame
-local UserInputService = game:GetService("UserInputService")
-local isDragging = false
-local dragStart = nil
-local startPos = nil
+local TitleBar = Instance.new("Frame", MainFrame)
+TitleBar.Name = "TitleBar"
+TitleBar.Size = UDim2.new(1, 0, 0, 40)
+TitleBar.BackgroundColor3 = SETTINGS.THEME.TitleBar
+TitleBar.BorderSizePixel = 0
+local TitleCorner = Instance.new("UICorner", TitleBar)
+TitleCorner.CornerRadius = UDim.new(0, 10)
+local TitleBarBottom = Instance.new("Frame", TitleBar)
+TitleBarBottom.Size = UDim2.new(1, 0, 0, 10)
+TitleBarBottom.Position = UDim2.new(0, 0, 1, -10)
+TitleBarBottom.BackgroundColor3 = SETTINGS.THEME.TitleBar
+TitleBarBottom.BorderSizePixel = 0
 
-MinimizedDragArea.InputBegan:Connect(function(input)
+local TitleIcon = Instance.new("TextLabel", TitleBar)
+TitleIcon.Size = UDim2.new(0, 30, 0, 30)
+TitleIcon.Position = UDim2.new(0, 5, 0, 5)
+TitleIcon.BackgroundTransparency = 1
+TitleIcon.Text = "🎯"
+TitleIcon.TextSize = 20
+TitleIcon.Font = Enum.Font.GothamBold
+
+local TitleText = Instance.new("TextLabel", TitleBar)
+TitleText.Size = UDim2.new(1, -100, 1, 0)
+TitleText.Position = UDim2.new(0, 40, 0, 0)
+TitleText.BackgroundTransparency = 1
+TitleText.Text = "ARCAN1ST"
+TitleText.TextColor3 = Color3.new(1, 1, 1)
+TitleText.Font = Enum.Font.GothamBold
+TitleText.TextSize = 15
+TitleText.TextXAlignment = Enum.TextXAlignment.Left
+
+local TitleAccent = Instance.new("TextLabel", TitleBar)
+TitleAccent.Size = UDim2.new(0, 40, 1, 0)
+TitleAccent.Position = UDim2.new(0, 110, 0, 0)
+TitleAccent.BackgroundTransparency = 1
+TitleAccent.Text = "HUB"
+TitleAccent.TextColor3 = SETTINGS.THEME.Accent
+TitleAccent.Font = Enum.Font.GothamBold
+TitleAccent.TextSize = 15
+TitleAccent.TextXAlignment = Enum.TextXAlignment.Left
+
+local MinimizeBtn = Instance.new("TextButton", TitleBar)
+MinimizeBtn.Name = "MinimizeBtn"
+MinimizeBtn.Size = UDim2.new(0, 28, 0, 28)
+MinimizeBtn.Position = UDim2.new(1, -62, 0, 6)
+MinimizeBtn.BackgroundColor3 = Color3.fromRGB(50, 120, 200)
+MinimizeBtn.Text = "−"
+MinimizeBtn.TextColor3 = Color3.new(1, 1, 1)
+MinimizeBtn.Font = Enum.Font.GothamBold
+MinimizeBtn.TextSize = 18
+Instance.new("UICorner", MinimizeBtn).CornerRadius = UDim.new(0, 6)
+
+local CloseBtn = Instance.new("TextButton", TitleBar)
+CloseBtn.Name = "CloseBtn"
+CloseBtn.Size = UDim2.new(0, 28, 0, 28)
+CloseBtn.Position = UDim2.new(1, -28, 0, 6)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+CloseBtn.Text = "×"
+CloseBtn.TextColor3 = Color3.new(1, 1, 1)
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 20
+Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
+
+local ContentFrame = Instance.new("Frame", MainFrame)
+ContentFrame.Name = "ContentFrame"
+ContentFrame.Size = UDim2.new(1, 0, 1, -40)
+ContentFrame.Position = UDim2.new(0, 0, 0, 40)
+ContentFrame.BackgroundColor3 = SETTINGS.THEME.Main
+ContentFrame.BorderSizePixel = 0
+
+local ScrollFrame = Instance.new("ScrollingFrame", ContentFrame)
+ScrollFrame.Size = UDim2.new(1, -10, 1, -10)
+ScrollFrame.Position = UDim2.new(0, 5, 0, 5)
+ScrollFrame.BackgroundTransparency = 1
+ScrollFrame.BorderSizePixel = 0
+ScrollFrame.ScrollBarThickness = 4
+ScrollFrame.ScrollBarImageColor3 = SETTINGS.THEME.Accent
+ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+ScrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
+local UIList = Instance.new("UIListLayout", ScrollFrame)
+UIList.Padding = UDim.new(0, 7)
+UIList.SortOrder = Enum.SortOrder.LayoutOrder
+UIList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+local TargetIcon = Instance.new("TextButton", ScreenGui)
+TargetIcon.Name = "TargetIcon"
+TargetIcon.Size = UDim2.new(0, 55, 0, 55)
+TargetIcon.Position = UDim2.new(0.08, 0, 0.25, 0)
+TargetIcon.BackgroundColor3 = SETTINGS.THEME.TitleBar
+TargetIcon.Text = "🎯"
+TargetIcon.TextSize = 28
+TargetIcon.Font = Enum.Font.GothamBold
+TargetIcon.TextColor3 = SETTINGS.THEME.Accent
+TargetIcon.Visible = false
+Instance.new("UICorner", TargetIcon).CornerRadius = UDim.new(0, 27)
+local IconStroke = Instance.new("UIStroke", TargetIcon)
+IconStroke.Color = SETTINGS.THEME.Accent
+IconStroke.Thickness = 2
+
+local isDragging, dragStart, startPos = false, nil, nil
+
+TitleBar.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         isDragging = true
         dragStart = input.Position
-        startPos = MinimizedFrame.Position
-
-        local connection
-        connection = input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                isDragging = false
-                if connection then
-                    connection:Disconnect()
-                end
-            end
-        end)
+        startPos = MainFrame.Position
     end
 end)
 
-MinimizedDragArea.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        if isDragging then
-            local delta = input.Position - dragStart
-            MinimizedFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale,
-                startPos.Y.Offset + delta.Y)
-        end
+TitleBar.InputChanged:Connect(function(input)
+    if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStart
+        MainFrame.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        )
     end
 end)
 
-local MinimizedLabel = Instance.new("TextButton", MinimizedFrame)
-MinimizedLabel.Size = UDim2.new(1, 0, 1, 0)
-MinimizedLabel.BackgroundTransparency = 1
-MinimizedLabel.Text = "🎯 Arcan1ST"
-MinimizedLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-MinimizedLabel.Font = Enum.Font.SourceSansBold
-MinimizedLabel.TextSize = 14
-
-local MainFrame = Instance.new("Frame", ScreenGui)
-MainFrame.Name = "MainFrame"
-MainFrame.Position = UDim2.new(0, 50, 0.4, 0)
-MainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
-MainFrame.Draggable = true
-MainFrame.AutomaticSize = Enum.AutomaticSize.Y -- Enable automatic Y sizing
-Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
-
---[[ TITLE BAR ]] --
-local TitleBar = Instance.new("Frame", MainFrame)
-TitleBar.Size = UDim2.new(1, 0, 0, 25)
-TitleBar.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-TitleBar.BorderSizePixel = 0
-Instance.new("UICorner", TitleBar).CornerRadius = UDim.new(0, 8)
-
-local Title = Instance.new("TextLabel", TitleBar)
-Title.Size = UDim2.new(1, -50, 1, 0)
-Title.Position = UDim2.new(0, 5, 0, 0)
-Title.BackgroundTransparency = 1
-Title.Text = "Arcan1STHub"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.Font = Enum.Font.SourceSansBold
-Title.TextSize = 14
-Title.TextXAlignment = Enum.TextXAlignment.Left
-
---[[ MINIMIZE BUTTON ]] --
-local MinimizeBtn = Instance.new("TextButton", TitleBar)
-MinimizeBtn.Size = UDim2.new(0, 20, 0, 20)
-MinimizeBtn.Position = UDim2.new(1, -45, 0, 3)
-MinimizeBtn.Text = "−"
-MinimizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-MinimizeBtn.BackgroundColor3 = Color3.fromRGB(60, 180, 75)
-MinimizeBtn.Font = Enum.Font.SourceSansBold
-MinimizeBtn.TextSize = 16
-MinimizeBtn.BorderSizePixel = 0
-Instance.new("UICorner", MinimizeBtn).CornerRadius = UDim.new(0, 4)
-
---[[ CLOSE BUTTON ]] --
-local CloseBtn = Instance.new("TextButton", TitleBar)
-CloseBtn.Size = UDim2.new(0, 20, 0, 20)
-CloseBtn.Position = UDim2.new(1, -25, 0, 3)
-CloseBtn.Text = "❌"
-CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-CloseBtn.Font = Enum.Font.SourceSansBold
-CloseBtn.TextSize = 12
-CloseBtn.BorderSizePixel = 0
-Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 4)
-
---[[ BUTTON CONTAINER ]] --
-local ButtonHolder = Instance.new("Frame", MainFrame)
-ButtonHolder.Size = UDim2.new(1, -10, 0, 0)
-ButtonHolder.Position = UDim2.new(0, 5, 0, 30)
-ButtonHolder.BackgroundTransparency = 1
-ButtonHolder.AutomaticSize = Enum.AutomaticSize.Y -- Enable automatic Y sizing
-
-local layout = Instance.new("UIListLayout", ButtonHolder)
-layout.Padding = UDim.new(0, 5)
-layout.FillDirection = Enum.FillDirection.Vertical
-layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-layout.SortOrder = Enum.SortOrder.LayoutOrder
-
---[[ WATERMARK ]] --
-local Watermark = Instance.new("TextLabel", MainFrame)
-Watermark.Size = UDim2.new(1, 0, 0, 20)
-Watermark.Position = UDim2.new(0, 0, 1, -20)
-Watermark.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-Watermark.Text = "by Arcan1ST ⭐"
-Watermark.TextColor3 = Color3.fromRGB(255, 255, 255)
-Watermark.Font = Enum.Font.SourceSansBold
-Watermark.TextSize = 12
-Watermark.BorderSizePixel = 0
-Instance.new("UICorner", Watermark).CornerRadius = UDim.new(0, 8)
-
---[[ CREATE HYDRATION BUTTON ]] --
-local HydrationBtn = Instance.new("TextButton", ButtonHolder)
-HydrationBtn.Size = UDim2.new(1, 0, 0, 30)
-HydrationBtn.Text = "💧 Auto Hydration"
-HydrationBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-HydrationBtn.BackgroundColor3 = Color3.fromRGB(60, 180, 75)
-HydrationBtn.Font = Enum.Font.SourceSansBold
-HydrationBtn.TextSize = 14
-HydrationBtn.BorderSizePixel = 0
-HydrationBtn.TextXAlignment = Enum.TextXAlignment.Left
-HydrationBtn.TextWrapped = false
-HydrationBtn.LayoutOrder = 0 -- First button
-Instance.new("UIPadding", HydrationBtn).PaddingLeft = UDim.new(0, 10)
-Instance.new("UICorner", HydrationBtn).CornerRadius = UDim.new(0, 6)
-
---[[ CREATE AUTO COMPLETE BUTTON ]] --
-local AutoTpBtn = Instance.new("TextButton", ButtonHolder)
-AutoTpBtn.Size = UDim2.new(1, 0, 0, 30)
-AutoTpBtn.Text = "🎯 Auto Complete"
-AutoTpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-AutoTpBtn.BackgroundColor3 = Color3.fromRGB(60, 180, 75)
-AutoTpBtn.Font = Enum.Font.SourceSansBold
-AutoTpBtn.TextSize = 14
-AutoTpBtn.BorderSizePixel = 0
-AutoTpBtn.TextXAlignment = Enum.TextXAlignment.Left
-AutoTpBtn.TextWrapped = false
-AutoTpBtn.LayoutOrder = 1 -- Second button
-Instance.new("UIPadding", AutoTpBtn).PaddingLeft = UDim.new(0, 10)
-Instance.new("UICorner", AutoTpBtn).CornerRadius = UDim.new(0, 6)
-
---[[ CREATE TELEPORT BUTTONS ]] --
-local buttonOrder = {"BASE", "CAMP1", "CAMP2", "CAMP3", "CAMP4", "SOUTHPOLE"}
-
-for i, name in ipairs(buttonOrder) do
-    local pos = teleportPoints[name]
-    local btn = Instance.new("TextButton", ButtonHolder)
-    btn.Size = UDim2.new(1, 0, 0, 30)
-    btn.Text = "📍 " .. name
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.BackgroundColor3 = Color3.fromRGB(60, 120, 200)
-    btn.Font = Enum.Font.SourceSansBold
-    btn.TextSize = 14
-    btn.BorderSizePixel = 0
-    btn.TextXAlignment = Enum.TextXAlignment.Left
-    btn.TextWrapped = false
-    btn.LayoutOrder = i + 1 -- Start after Auto Complete button
-    Instance.new("UIPadding", btn).PaddingLeft = UDim.new(0, 10)
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
-
-    btn.MouseButton1Click:Connect(function()
-        instantTeleportTo(pos)
-    end)
-end
-
--- Add this function to handle proper stopping
-local function stopAutoComplete()
-    isAutoTeleporting = false
-    isAutoJumping = false
-
-    -- Reset character states
-    local player = game.Players.LocalPlayer
-    if player and player.Character then
-        local humanoid = player.Character:FindFirstChild("Humanoid")
-        local rootPart = player.Character:FindFirstChild("HumanoidRootPart")
-
-        if humanoid and rootPart then
-            -- Reset all movement states
-            rootPart.Anchored = false
-            humanoid.PlatformStand = false
-
-            -- Reset velocities
-            rootPart.Velocity = Vector3.new(0, 0, 0)
-            rootPart.RotVelocity = Vector3.new(0, 0, 0)
-
-            -- Enable all movement states
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Running, true)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, true)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Swimming, true)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
-            humanoid:ChangeState(Enum.HumanoidStateType.Running)
-
-            -- Make sure character is on the ground
-            local currentPosition = rootPart.Position
-            local groundPosition = currentPosition - Vector3.new(0, 3, 0)
-            rootPart.CFrame = CFrame.new(groundPosition)
-        end
+TitleBar.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        isDragging = false
     end
-end
+end)
 
---[[ BUTTON HANDLERS ]] --
-AutoTpBtn.MouseButton1Click:Connect(function()
-    if isAutoTeleporting then
-        stopAutoComplete() -- Use the new function to stop properly
-        AutoTpBtn.Text = "🎯 Auto Complete"
-        AutoTpBtn.BackgroundColor3 = Color3.fromRGB(60, 180, 75)
-
-        -- Show notification that auto complete is stopped
-        game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "Auto Complete",
-            Text = "Stopped ⏹",
-            Duration = 2
-        })
+local isMinimized = false
+MinimizeBtn.MouseButton1Click:Connect(function()
+    isMinimized = not isMinimized
+    local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    
+    if isMinimized then
+        TweenService:Create(MainFrame, tweenInfo, {Size = UDim2.new(0, 240, 0, 40)}):Play()
+        task.wait(0.3)
+        MainFrame.Visible = false
+        TargetIcon.Visible = true
+        TargetIcon.Position = MainFrame.Position
     else
-        startAutoTeleport()
-        AutoTpBtn.Text = "⏹ Stop Auto Complete"
-        AutoTpBtn.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+        MainFrame.Visible = true
+        TargetIcon.Visible = false
+        TweenService:Create(MainFrame, tweenInfo, {Size = UDim2.new(0, 240, 0, 400)}):Play()
     end
+end)
+
+TargetIcon.MouseButton1Click:Connect(function()
+    isMinimized = false
+    MainFrame.Visible = true
+    TargetIcon.Visible = false
+    TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), 
+        {Size = UDim2.new(0, 240, 0, 400)}):Play()
 end)
 
 CloseBtn.MouseButton1Click:Connect(function()
-    stopAutoComplete() -- Make sure to stop properly when closing GUI
+    State.AutoTeleport = false
+    State.AutoJump = false
+    State.AutoHydration = false
     ScreenGui:Destroy()
+    getgenv().Arcan1ST_Running = false
 end)
 
---[[ HYDRATION SYSTEM ]] --
-local function getNearestCamp()
-    local char = player.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then
-        return "BASE"
-    end
-
-    local pos = char.HumanoidRootPart.Position
-
-    -- Check if player is at or near SOUTHPOLE
-    local southPolePos = teleportPoints["SOUTHPOLE"]
-    local distanceToSouthPole = (pos - southPolePos).Magnitude
-    if distanceToSouthPole < 500 then -- If within 500 studs of SOUTHPOLE
-        return nil -- Return nil to indicate we shouldn't refill
-    end
-
-    local closestCamp = nil
-    local shortestDistance = math.huge
-
-    for campName, campPos in pairs(teleportPoints) do
-        if campName ~= "SOUTHPOLE" then
-            local dist = (pos - campPos).Magnitude
-            if dist < shortestDistance then
-                shortestDistance = dist
-                closestCamp = campName
-            end
-        end
-    end
-
-    return closestCamp
+local function CreateBtn(text, col, func)
+    local btn = Instance.new("TextButton", ScrollFrame)
+    btn.Size = UDim2.new(0.95, 0, 0, 36)
+    btn.Text = text
+    btn.BackgroundColor3 = col
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.Font = Enum.Font.GothamSemibold
+    btn.TextSize = 12
+    btn.AutoButtonColor = false
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 7)
+    
+    btn.MouseEnter:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(
+            math.min(col.R * 255 + 25, 255),
+            math.min(col.G * 255 + 25, 255),
+            math.min(col.B * 255 + 25, 255)
+        ) / 255}):Play()
+    end)
+    
+    btn.MouseLeave:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = col}):Play()
+    end)
+    
+    btn.MouseButton1Click:Connect(function() func(btn) end)
+    return btn
 end
 
-local function tryDrink()
-    local character = player.Character
-    if not character then
-        return false
-    end
-
-    local waterBottle = character:FindFirstChild("Water Bottle")
-    if waterBottle and waterBottle:FindFirstChild("RemoteEvent") then
-        waterBottle.RemoteEvent:FireServer()
-        return true
-    end
-    return false
-end
-
-local function fillBottleAtCamp(campName)
-    -- Store current auto-jump state
-    local wasAutoJumping = isAutoJumping
-
-    -- Convert camp name to proper case sensitive format for the remote event
-    local properCampName = campNameMapping[campName] or campName
-
-    -- Get the specific fill location for this camp
-    local fillLocation = fillBottleLocations[campName]
-    if fillLocation then
-        -- Temporarily disable auto-jump for refill
-        isAutoJumping = false
-
-        -- Ensure water bottle is equipped
-        local character = player.Character
-        local backpack = player:WaitForChild("Backpack")
-        local waterBottle = character:FindFirstChild("Water Bottle") or backpack:FindFirstChild("Water Bottle")
-
-        if waterBottle and waterBottle:IsA("Tool") then
-            -- If bottle is in backpack, equip it
-            if waterBottle.Parent == backpack then
-                local humanoid = character:WaitForChild("Humanoid")
-                humanoid:EquipTool(waterBottle)
-                task.wait(0.3) -- Wait for equip animation
-            end
-
-            -- Teleport to fill location and perform fill action
-            instantTeleportTo(fillLocation)
-            task.wait(0.3)
-
-            -- Fill bottle
-            local args = {"FillBottle", properCampName, "Water"}
-            ReplicatedStorage:WaitForChild("Events"):WaitForChild("EnergyHydration"):FireServer(unpack(args))
-            task.wait(0.5)
-
-            -- Return to checkpoint immediately after filling
-            if teleportPoints[campName] then
-                instantTeleportTo(teleportPoints[campName])
-            end
-        else
-            warn("Water Bottle tidak ditemukan di Backpack atau Character!")
-        end
-
-        -- Restore previous auto-jump state
-        isAutoJumping = wasAutoJumping
-        if wasAutoJumping then
-            startAutoJump()
-        end
-    end
-end
-
---[[ INITIALIZE HYDRATION SYSTEM ]] --
-task.spawn(function()
-    RunService.RenderStepped:Connect(function()
-        if not isAutoHydrationEnabled then
-            return
-        end
-
-        local hydration = player:GetAttribute("Hydration")
-        -- Only proceed if hydration exists and is below threshold
-        if hydration then
-            -- Add extra check to prevent drinking if hydration is already high
-            if hydration >= 99 then
-                return -- Skip everything if hydration is already at or near 100%
-            end
-
-            if hydration < 50 then -- Only drink when below 50%
-                -- Try to drink and check if hydration increases
-                local beforeDrinkHydration = hydration
-                tryDrink() -- Directly call tryDrink without storing result
-
-                task.wait(0.3) -- Wait for hydration update
-
-                -- Check if drinking actually increased hydration
-                local afterDrinkHydration = player:GetAttribute("Hydration")
-                local hydrationIncreased = afterDrinkHydration > beforeDrinkHydration
-
-                if hydrationIncreased then
-                    -- Keep drinking until we reach near 100%
-                    while player:GetAttribute("Hydration") < 99 do
-                        local currentHydration = player:GetAttribute("Hydration")
-                        local success = tryDrink()
-
-                        task.wait(0.3) -- Wait for hydration update
-                        local newHydration = player:GetAttribute("Hydration")
-
-                        -- Exit if we've reached target hydration
-                        if newHydration >= 99 then
-                            break
-                        end
-
-                        -- If hydration didn't increase or drink failed, we need to refill
-                        if not success or newHydration <= currentHydration then
-                            local nearestCamp = getNearestCamp()
-                            if nearestCamp then -- Will be nil if at SOUTHPOLE
-                                fillBottleAtCamp(nearestCamp)
-                                task.wait(0.3)
-                                -- Try drinking again after refill
-                                tryDrink()
-                            end
-                            break -- Exit loop if we're at SOUTHPOLE or drinking failed after refill
-                        end
-
-                        task.wait(0.2) -- Small wait between drinks
-                    end
-                else
-                    -- Initial drink didn't increase hydration, try to refill if not at SOUTHPOLE
-                    local nearestCamp = getNearestCamp()
-                    if nearestCamp then
-                        fillBottleAtCamp(nearestCamp)
-
-                        -- After refilling, drink until near 100%
-                        task.wait(0.3)
-                        while player:GetAttribute("Hydration") < 99 do
-                            local currentHydration = player:GetAttribute("Hydration")
-                            -- Exit if we've reached target hydration
-                            if currentHydration >= 99 then
-                                break
-                            end
-
-                            local success = tryDrink()
-                            task.wait(0.3)
-                            local newHydration = player:GetAttribute("Hydration")
-                            if not success or newHydration <= currentHydration then
-                                break
-                            end
-
-                            task.wait(0.2)
-                        end
-                    end
-                end
-            end
-        end
-    end)
+CreateBtn("⚡ BOOST FPS (SAFE)", Color3.fromRGB(255, 150, 0), function(b)
+    SmartBoostFPS()
+    b.Text = "✅ FPS BOOSTED"
+    task.wait(1.5)
+    b.Text = "⚡ BOOST FPS (SAFE)"
 end)
 
---[[ INITIALIZE PROTECTION ]] --
-task.spawn(function()
-    local player = game.Players.LocalPlayer
-
-    -- Wait for character to load if not already loaded
-    if not player.Character then
-        player.CharacterAdded:Wait()
-    end
-
-    setupAntiFallDamage()
-
-    -- Setup character protection for future respawns
-    player.CharacterAdded:Connect(function(char)
-        wait(1) -- Wait for character to fully load
-        setupAntiFallDamage()
-
-        -- Additional safety: Connect to touched events
-        char.DescendantAdded:Connect(function(desc)
-            if desc:IsA("Script") and desc.Name:find("Damage") then
-                desc:Destroy()
-            end
-        end)
-    end)
+CreateBtn("💧 Auto Hydration: OFF", Color3.fromRGB(70, 70, 85), function(b)
+    State.AutoHydration = not State.AutoHydration
+    b.Text = State.AutoHydration and "💧 Auto Hydration: ON" or "💧 Auto Hydration: OFF"
+    b.BackgroundColor3 = State.AutoHydration and Color3.fromRGB(0, 200, 255) or Color3.fromRGB(70, 70, 85)
 end)
 
---[[ INITIALIZE CHARACTER MOVEMENT ]] --
-task.spawn(function()
-    local player = game.Players.LocalPlayer
-
-    -- Fix current character
-    if player.Character then
-        ensureCharacterCanMove()
-    end
-
-    -- Fix future characters
-    player.CharacterAdded:Connect(function(char)
-        task.wait(0.5) -- Wait for character to fully load
-        ensureCharacterCanMove()
-    end)
-
-    -- Periodically check and fix movement
-    task.spawn(function()
-        while wait(1) do
-            if player.Character then
-                local rootPart = player.Character:FindFirstChild("HumanoidRootPart")
-                local humanoid = player.Character:FindFirstChild("Humanoid")
-                if rootPart and rootPart.Anchored or (humanoid and humanoid.PlatformStand) then
-                    ensureCharacterCanMove()
-                end
-            end
-        end
-    end)
-end)
-
---[[ MINIMIZE/MAXIMIZE HANDLER ]] --
-MinimizeBtn.MouseButton1Click:Connect(function()
-    -- Save current position before minimizing
-    local currentPos = MainFrame.Position
-    MinimizedFrame.Position = currentPos
-    MainFrame.Visible = false
-    MinimizedFrame.Visible = true
-    MinimizedFrame.Active = true
-    MinimizedFrame.Draggable = false -- Disable default dragging
-end)
-
-MinimizedLabel.MouseButton1Click:Connect(function()
-    -- Save current position before maximizing
-    local currentPos = MinimizedFrame.Position
-    MainFrame.Position = currentPos
-    MainFrame.Visible = true
-    MinimizedFrame.Visible = false
-end)
-
--- Enhanced dragging system for MinimizedFrame
-local dragging = false
-local dragStart = nil
-local startPos = nil
-local dragInput = nil
-
--- Make entire MinimizedFrame draggable
-local function updateDrag(input)
-    if dragging then
-        local delta = input.Position - dragStart
-        MinimizedFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale,
-            startPos.Y.Offset + delta.Y)
-    end
-end
-
-MinimizedFrame.InputBegan:Connect(function(input)
-    if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
-        dragging = true
-        dragStart = input.Position
-        startPos = MinimizedFrame.Position
-
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
-        end)
+local speedBtn = CreateBtn("⚙️ Mode: BLATANT (Instant)", Color3.fromRGB(120, 50, 200), function(b)
+    if SETTINGS.TWEEN_SPEED == 0 then
+        SETTINGS.TWEEN_SPEED = 500
+        b.Text = "⚙️ Mode: LEGIT (Tween)"
+        b.BackgroundColor3 = Color3.fromRGB(50, 150, 200)
+        Notify("Mode", "Legit Mode (500 speed)")
+    else
+        SETTINGS.TWEEN_SPEED = 0
+        b.Text = "⚙️ Mode: BLATANT (Instant)"
+        b.BackgroundColor3 = Color3.fromRGB(120, 50, 200)
+        Notify("Mode", "Blatant Mode (Instant TP)")
     end
 end)
 
-MinimizedFrame.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        dragInput = input
+CreateBtn("🚀 START AUTO LOOP", SETTINGS.THEME.Accent, function(b)
+    if State.AutoTeleport then
+        State.AutoTeleport = false
+        State.AutoJump = false
+        b.Text = "🚀 START AUTO LOOP"
+        b.BackgroundColor3 = SETTINGS.THEME.Accent
+        Notify("Arcan1ST", "Loop Stopped")
+    else
+        StartLoop()
+        b.Text = "⏹ STOP LOOP"
+        b.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+        Notify("Arcan1ST", "Loop Started")
     end
 end)
 
-UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        updateDrag(input)
-    end
-end)
+local Divider = Instance.new("Frame", ScrollFrame)
+Divider.Size = UDim2.new(0.9, 0, 0, 2)
+Divider.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+Divider.BorderSizePixel = 0
 
--- Function to update positions between frames
-local function updatePosition(from, to)
-    from.Changed:Connect(function(property)
-        if property == "Position" and from.Visible then
-            to.Position = from.Position
-        end
+for _, camp in ipairs(CheckpointOrder) do
+    CreateBtn("📍 " .. camp, Color3.fromRGB(60, 60, 90), function()
+        SafeTeleport(Waypoints[camp])
+        Notify("Teleport", "Moved to " .. camp)
     end)
 end
 
--- Keep positions synced between frames
-updatePosition(MainFrame, MinimizedFrame)
-updatePosition(MinimizedFrame, MainFrame)
-
---[[ SET MAIN FRAME WIDTH ]] --
-MainFrame.Size = UDim2.new(0, 180, 0, 0) -- Width fixed, height automatic
-
---[[ UPDATE WATERMARK POSITION ]] --
-task.spawn(function()
-    while task.wait() do
-        if MainFrame.Visible then
-            local totalHeight = ButtonHolder.AbsoluteSize.Y + 50 -- 30 for title + 20 for watermark
-            Watermark.Position = UDim2.new(0, 0, 0, totalHeight)
-        end
-    end
-end)
+if SETTINGS.FPS_BOOST_AUTO then SmartBoostFPS() end
+HookCharacter(LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait())
+LocalPlayer.CharacterAdded:Connect(HookCharacter)
+Notify("Arcan1ST", " Edition Loaded! ✅", 3)
