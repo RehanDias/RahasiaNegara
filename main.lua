@@ -1,126 +1,275 @@
---[[ SERVICES ]] --
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
+--[[
+    Arcan1ST Antarctica Script
+    Version: 2.0.0
+    Improved Architecture & Performance
+]]--
 
---[[ VARIABLES ]] --
-local player = Players.LocalPlayer
-local hydrationThreshold = 50
-local isAutoHydrationEnabled = true
--- Add cache for validated positions
-local validatedPositions = {}
-
---[[ TELEPORT LOCATIONS ]] --
-local teleportPoints = {
-    ["BASE"] = Vector3.new(-6016.00, -159.00, -28.57),
-    ["CAMP1"] = Vector3.new(-3720.19, 225.00, 235.91),
-    ["CAMP2"] = Vector3.new(1790.79, 105.45, -136.89),
-    ["CAMP3"] = Vector3.new(5891.24, 321.00, -18.60),
-    ["CAMP4"] = Vector3.new(8992.07, 595.59, 103.63),
-    ["SOUTHPOLE"] = Vector3.new(10993.19, 549.13, 100.13)
+--[[ CONFIGURATION ]] --
+local Config = {
+    Version = "2.0.0",
+    Debug = false,
+    
+    Hydration = {
+        Enabled = true,
+        Threshold = 50,
+        TargetLevel = 99
+    },
+    
+    AutoComplete = {
+        TeleportDelay = 0.5,
+        JumpInterval = 0.5,
+        RespawnDelay = 3
+    },
+    
+    AntiCheat = {
+        SpoofSpeed = true,
+        SpoofJump = true,
+        DefaultSpeed = 16,
+        DefaultJump = 50
+    }
 }
 
--- Water bottle fill locations
-local fillBottleLocations = {
-    ["BASE"] = Vector3.new(-6042.84, -158.95, -59.00),
-    ["CAMP1"] = Vector3.new(-3718.06, 228.94, 261.38),
-    ["CAMP2"] = Vector3.new(1799.14, 105.37, -161.86),
-    ["CAMP3"] = Vector3.new(5885.90, 321.00, 4.62),
-    ["CAMP4"] = Vector3.new(9000.03, 597.40, 88.02)
-}
+--[[ MODULE: AntarcticaHub ]] --
+local AntarcticaHub = {}
+AntarcticaHub.__index = AntarcticaHub
 
-local campNameMapping = {
-    ["BASE"] = "BaseCamp",
-    ["CAMP1"] = "Camp1",
-    ["CAMP2"] = "Camp2",
-    ["CAMP3"] = "Camp3",
-    ["CAMP4"] = "Camp4"
-}
-
-local checkpointOrder = {"CAMP1", "CAMP2", "CAMP3", "CAMP4", "SOUTHPOLE"}
-local currentCheckpoint = 1
-local isAutoTeleporting = false
-local isAutoJumping = false
-
---[[ FIND NEAREST CHECKPOINT ]] --
-local function findNearestCheckpoint()
-    local player = game.Players.LocalPlayer
-    if not player then
-        return 1
-    end
-
-    -- Wait for character to load if not present
-    if not player.Character then
-        player.CharacterAdded:Wait()
-    end
-
-    local character = player.Character
-    if not character then
-        return 1
-    end
-
-    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
-    if not humanoidRootPart then
-        return 1
-    end
-
-    local currentPos = humanoidRootPart.Position
-    local nearestDist = math.huge
-    local nearestIndex = 1
-
-    for i, checkpointName in ipairs(checkpointOrder) do
-        local checkpointPos = teleportPoints[checkpointName]
-        local dist = (currentPos - checkpointPos).Magnitude
-        if dist < nearestDist then
-            nearestDist = dist
-            nearestIndex = i
+--[[ SERVICE CACHE ]] --
+AntarcticaHub.Services = setmetatable({}, {
+    __index = function(self, serviceName)
+        local success, service = pcall(game.GetService, game, serviceName)
+        if success then
+            rawset(self, serviceName, service)
+            return service
         end
+        return nil
     end
+})
 
-    return nearestIndex
+--[[ TELEPORT DATA ]] --
+AntarcticaHub.Locations = {
+    Checkpoints = {
+        {Name = "BASE", Position = Vector3.new(-6016.00, -159.00, -28.57)},
+        {Name = "CAMP1", Position = Vector3.new(-3720.19, 225.00, 235.91)},
+        {Name = "CAMP2", Position = Vector3.new(1790.79, 105.45, -136.89)},
+        {Name = "CAMP3", Position = Vector3.new(5891.24, 321.00, -18.60)},
+        {Name = "CAMP4", Position = Vector3.new(8992.07, 595.59, 103.63)},
+        {Name = "SOUTHPOLE", Position = Vector3.new(10993.19, 549.13, 100.13)}
+    },
+    
+    FillBottle = {
+        BASE = Vector3.new(-6042.84, -158.95, -59.00),
+        CAMP1 = Vector3.new(-3718.06, 228.94, 261.38),
+        CAMP2 = Vector3.new(1799.14, 105.37, -161.86),
+        CAMP3 = Vector3.new(5885.90, 321.00, 4.62),
+        CAMP4 = Vector3.new(9000.03, 597.40, 88.02)
+    },
+    
+    CampNames = {
+        BASE = "BaseCamp",
+        CAMP1 = "Camp1",
+        CAMP2 = "Camp2",
+        CAMP3 = "Camp3",
+        CAMP4 = "Camp4"
+    }
+}
+
+--[[ STATE MANAGEMENT ]] --
+AntarcticaHub.State = {
+    currentCheckpoint = 1,
+    isAutoTeleporting = false,
+    isAutoJumping = false,
+    isAutoHydrationEnabled = true,
+    validatedPositions = {},
+    cachedPlayer = nil,
+    cachedCharacter = nil,
+    cachedHumanoid = nil,
+    cachedRootPart = nil
+}
+
+--[[ UTILITY MODULE ]] --
+AntarcticaHub.Utils = {}
+
+function AntarcticaHub.Utils.log(message, level)
+    level = level or "INFO"
+    if Config.Debug or level == "ERROR" then
+        print(string.format("[Arcan1ST][%s] %s", level, message))
+    end
 end
 
---[[ AUTO JUMP FUNCTION ]] --
-local function startAutoJump()
-    spawn(function()
-        while isAutoJumping do
-            local player = game.Players.LocalPlayer
-            if player and player.Character then
-                local humanoid = player.Character:FindFirstChild("Humanoid")
-                if humanoid then
-                    humanoid.Jump = true
-                end
-            end
-            wait(0.5)
-        end
+function AntarcticaHub.Utils.safeCall(func, ...)
+    local args = {...}
+    local success, result = pcall(function()
+        return func(table.unpack(args))
+    end)
+    if not success then
+        AntarcticaHub.Utils.log(tostring(result), "ERROR")
+        return nil
+    end
+    return result
+end
+
+function AntarcticaHub.Utils.notify(title, text, duration)
+    AntarcticaHub.Utils.safeCall(function()
+        AntarcticaHub.Services.StarterGui:SetCore("SendNotification", {
+            Title = title or "Arcan1STHub",
+            Text = text,
+            Duration = duration or 3
+        })
     end)
 end
 
---[[ ANTI FALL DAMAGE SYSTEM ]] --
-local function setupAntiFallDamage()
-    local player = game.Players.LocalPlayer
-    if not player then
+function AntarcticaHub.Utils.createPosKey(position)
+    return string.format("%d,%d,%d", 
+        math.floor(position.X), 
+        math.floor(position.Y), 
+        math.floor(position.Z)
+    )
+end
+
+--[[ PLAYER MODULE ]] --
+AntarcticaHub.Player = {}
+
+function AntarcticaHub.Player.get()
+    if not AntarcticaHub.State.cachedPlayer then
+        AntarcticaHub.State.cachedPlayer = AntarcticaHub.Services.Players.LocalPlayer
+    end
+    return AntarcticaHub.State.cachedPlayer
+end
+
+function AntarcticaHub.Player.getCharacter()
+    local player = AntarcticaHub.Player.get()
+    if not player then return nil end
+    
+    if not AntarcticaHub.State.cachedCharacter or not AntarcticaHub.State.cachedCharacter.Parent then
+        AntarcticaHub.State.cachedCharacter = player.Character
+    end
+    return AntarcticaHub.State.cachedCharacter
+end
+
+function AntarcticaHub.Player.getHumanoid()
+    if AntarcticaHub.State.cachedHumanoid and AntarcticaHub.State.cachedHumanoid.Parent then
+        return AntarcticaHub.State.cachedHumanoid
+    end
+    
+    local character = AntarcticaHub.Player.getCharacter()
+    if character then
+        AntarcticaHub.State.cachedHumanoid = character:FindFirstChild("Humanoid")
+    end
+    return AntarcticaHub.State.cachedHumanoid
+end
+
+function AntarcticaHub.Player.getRootPart()
+    if AntarcticaHub.State.cachedRootPart and AntarcticaHub.State.cachedRootPart.Parent then
+        return AntarcticaHub.State.cachedRootPart
+    end
+    
+    local character = AntarcticaHub.Player.getCharacter()
+    if character then
+        AntarcticaHub.State.cachedRootPart = character:FindFirstChild("HumanoidRootPart")
+    end
+    return AntarcticaHub.State.cachedRootPart
+end
+
+function AntarcticaHub.Player.clearCache()
+    AntarcticaHub.State.cachedCharacter = nil
+    AntarcticaHub.State.cachedHumanoid = nil
+    AntarcticaHub.State.cachedRootPart = nil
+end
+
+function AntarcticaHub.Player.respawn()
+    local humanoid = AntarcticaHub.Player.getHumanoid()
+    if humanoid then
+        humanoid.Health = 0
+    end
+end
+
+function AntarcticaHub.Player.getAttribute(attributeName)
+    local player = AntarcticaHub.Player.get()
+    if player then
+        return player:GetAttribute(attributeName)
+    end
+    return nil
+end
+
+--[[ ANTI-CHEAT BYPASS MODULE ]] --
+AntarcticaHub.AntiCheat = {}
+
+function AntarcticaHub.AntiCheat.setupValueSpoof()
+    if not Config.AntiCheat.SpoofSpeed and not Config.AntiCheat.SpoofJump then
         return
     end
+    
+    local success = pcall(function()
+        local mt = getrawmetatable(game)
+        local oldIndex = mt.__index
+        
+        setreadonly(mt, false)
+        
+        mt.__index = newcclosure(function(self, key)
+            if checkcaller and not checkcaller() then
+                if self:IsA("Humanoid") then
+                    if Config.AntiCheat.SpoofSpeed and key == "WalkSpeed" then
+                        return Config.AntiCheat.DefaultSpeed
+                    elseif Config.AntiCheat.SpoofJump and key == "JumpPower" then
+                        return Config.AntiCheat.DefaultJump
+                    end
+                end
+            end
+            return oldIndex(self, key)
+        end)
+        
+        setreadonly(mt, true)
+        AntarcticaHub.Utils.log("Value spoofing enabled", "INFO")
+    end)
+    
+    if not success then
+        AntarcticaHub.Utils.log("Failed to setup value spoof", "ERROR")
+    end
+end
 
-    local function protectFromDamage(char)
-        if not char then
-            return
-        end
+function AntarcticaHub.AntiCheat.setupKickProtection()
+    local success = pcall(function()
+        local mt = getrawmetatable(game)
+        local oldNamecall
+        
+        setreadonly(mt, false)
+        
+        oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+            local method = getnamecallmethod()
+            
+            if method == "Kick" then
+                AntarcticaHub.Utils.log("Kick attempt blocked", "INFO")
+                return nil
+            end
+            
+            return oldNamecall(self, ...)
+        end))
+        
+        setreadonly(mt, true)
+        AntarcticaHub.Utils.log("Kick protection enabled", "INFO")
+    end)
+    
+    if not success then
+        AntarcticaHub.Utils.log("Failed to setup kick protection", "ERROR")
+    end
+end
 
-        local humanoid = char:FindFirstChild("Humanoid")
-        if not humanoid then
-            return
-        end
-
-        -- Disable all damage-related states
+function AntarcticaHub.AntiCheat.setupFallDamageProtection()
+    local player = AntarcticaHub.Player.get()
+    if not player then return end
+    
+    local function protectCharacter(character)
+        if not character then return end
+        
+        local humanoid = character:WaitForChild("Humanoid", 5)
+        if not humanoid then return end
+        
+        -- Disable damage states
         humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
         humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.Flying, true)
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.Landed, false)
         humanoid:SetStateEnabled(Enum.HumanoidStateType.Physics, false)
-
-        -- Connect to health changes but allow respawn
+        
+        -- Health protection
         local lastHealth = humanoid.Health
         humanoid.HealthChanged:Connect(function(health)
             if health < lastHealth and health > 0 then
@@ -128,207 +277,188 @@ local function setupAntiFallDamage()
             end
             lastHealth = health
         end)
-
-        -- Additional fall damage protection
-        char.ChildAdded:Connect(function(child)
+        
+        -- Remove damage scripts
+        character.ChildAdded:Connect(function(child)
             if child:IsA("Script") then
-                if child.Name:find("Fall") or child.Name:find("Damage") or child.Name:find("freeze") or
-                    child.Name:find("Water") then
-                    task.wait()
+                local name = child.Name:lower()
+                if name:find("fall") or name:find("damage") or name:find("freeze") or name:find("water") then
+                    task.wait(0.1)
                     child:Destroy()
                 end
             end
         end)
-
-        -- Remove existing damage scripts
-        for _, child in pairs(char:GetChildren()) do
-            if child:IsA("Script") then
-                if child.Name:find("Fall") or child.Name:find("Damage") or child.Name:find("freeze") or
-                    child.Name:find("Water") then
-                    child:Destroy()
-                end
-            end
-        end
     end
-
-    -- Protect current character
+    
+    -- Protect current and future characters
     if player.Character then
-        protectFromDamage(player.Character)
+        protectCharacter(player.Character)
     end
-
-    -- Protect future characters
-    player.CharacterAdded:Connect(protectFromDamage)
+    
+    player.CharacterAdded:Connect(function(character)
+        task.wait(1)
+        protectCharacter(character)
+        AntarcticaHub.Player.clearCache()
+    end)
 end
 
---[[ SAFETY TELEPORT FUNCTION ]] --
-local function waitForTerrain(position)
-    local terrain = workspace.Terrain
-    local radius = 100 -- Radius area to check for obstacles
+--[[ MOVEMENT MODULE ]] --
+AntarcticaHub.Movement = {}
 
-    -- Wait for terrain and obstacles to load
+function AntarcticaHub.Movement.ensureCanMove()
+    local humanoid = AntarcticaHub.Player.getHumanoid()
+    local rootPart = AntarcticaHub.Player.getRootPart()
+    
+    if not humanoid or not rootPart then return end
+    
+    -- Reset states
+    rootPart.Anchored = false
+    humanoid.PlatformStand = false
+    humanoid:ChangeState(Enum.HumanoidStateType.Running)
+    
+    -- Enable movement states
+    local states = {
+        Enum.HumanoidStateType.Running,
+        Enum.HumanoidStateType.Climbing,
+        Enum.HumanoidStateType.Jumping,
+        Enum.HumanoidStateType.Swimming,
+        Enum.HumanoidStateType.GettingUp
+    }
+    
+    for _, state in ipairs(states) do
+        humanoid:SetStateEnabled(state, true)
+    end
+    
+    -- Reset velocities
+    rootPart.Velocity = Vector3.zero
+    rootPart.RotVelocity = Vector3.zero
+end
+
+function AntarcticaHub.Movement.waitForTerrain(position, timeout)
+    timeout = timeout or 5
     local startTime = tick()
-    local timeout = 5 -- Maximum wait time in seconds
-
+    
     while tick() - startTime < timeout do
-        local blockFound = false
-
-        -- Check if there's any solid ground below the position
         local ray = Ray.new(position + Vector3.new(0, 10, 0), Vector3.new(0, -20, 0))
-        local hit, hitPosition = workspace:FindPartOnRay(ray)
-
+        local hit = workspace:FindPartOnRay(ray)
+        
         if hit then
-            -- Found solid ground
             return true
         end
-
+        
         task.wait(0.1)
     end
-
-    return false -- Timeout reached
+    
+    return false
 end
 
---[[ MOVEMENT HANDLER ]] --
-local function ensureCharacterCanMove()
-    local player = game.Players.LocalPlayer
-    if not player or not player.Character then
-        return
+function AntarcticaHub.Movement.teleportTo(position)
+    local rootPart = AntarcticaHub.Player.getRootPart()
+    if not rootPart then return false end
+    
+    local posKey = AntarcticaHub.Utils.createPosKey(position)
+    
+    -- Reset velocities
+    rootPart.Velocity = Vector3.zero
+    rootPart.RotVelocity = Vector3.zero
+    
+    -- Check if position is validated
+    if not AntarcticaHub.State.validatedPositions[posKey] then
+        rootPart.Anchored = true
+        
+        -- Initial teleport above target
+        local safeHeight = 10
+        local initialPos = position + Vector3.new(0, safeHeight, 0)
+        rootPart.CFrame = CFrame.new(initialPos)
+        
+        -- Wait for terrain
+        local terrainLoaded = AntarcticaHub.Movement.waitForTerrain(position, 5)
+        
+        if terrainLoaded then
+            AntarcticaHub.State.validatedPositions[posKey] = true
+        end
     end
-
-    local humanoid = player.Character:FindFirstChild("Humanoid")
-    local rootPart = player.Character:FindFirstChild("HumanoidRootPart")
-
-    if humanoid and rootPart then
-        -- Reset movement states
-        rootPart.Anchored = false
-        humanoid.PlatformStand = false
-        humanoid:ChangeState(Enum.HumanoidStateType.Running)
-
-        -- Enable necessary states for movement
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.Running, true)
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, true)
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.Swimming, true)
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
-
-        -- Reset velocities
-        rootPart.Velocity = Vector3.new(0, 0, 0)
-        rootPart.RotVelocity = Vector3.new(0, 0, 0)
-    end
+    
+    -- Final teleport
+    local finalPosition = position + Vector3.new(0, 5, 0)
+    rootPart.CFrame = CFrame.new(finalPosition)
+    
+    task.wait(0.2)
+    AntarcticaHub.Movement.ensureCanMove()
+    
+    return true
 end
 
-local function instantTeleportTo(position)
-    local player = game.Players.LocalPlayer
-    if not player then
-        return
+function AntarcticaHub.Movement.findNearestCheckpoint()
+    local rootPart = AntarcticaHub.Player.getRootPart()
+    if not rootPart then return 1 end
+    
+    local currentPos = rootPart.Position
+    local nearestDist = math.huge
+    local nearestIndex = 1
+    
+    for i = 2, #AntarcticaHub.Locations.Checkpoints do -- Skip BASE
+        local checkpoint = AntarcticaHub.Locations.Checkpoints[i]
+        local dist = (currentPos - checkpoint.Position).Magnitude
+        
+        if dist < nearestDist then
+            nearestDist = dist
+            nearestIndex = i
+        end
     end
+    
+    return nearestIndex
+end
 
-    -- Wait for character to load if not present
-    if not player.Character then
-        player.CharacterAdded:Wait()
-    end
+--[[ AUTO JUMP MODULE ]] --
+AntarcticaHub.AutoJump = {}
 
-    local char = player.Character
-    if not char then
-        return
-    end
-
-    -- Wait for HumanoidRootPart and Humanoid
-    local tries = 0
-    while tries < 10 do
-        local humanoid = char:FindFirstChild("Humanoid")
-        local rootPart = char:FindFirstChild("HumanoidRootPart")
-        if humanoid and rootPart then
-            -- Create position key for cache
-            local posKey = tostring(math.floor(position.X)) .. "," .. tostring(math.floor(position.Y)) .. "," ..
-                               tostring(math.floor(position.Z))
-
-            -- Reset velocities and prepare for teleport
-            rootPart.Velocity = Vector3.new(0, 0, 0)
-            rootPart.RotVelocity = Vector3.new(0, 0, 0)
-
-            -- Check if this position has been validated before
-            if not validatedPositions[posKey] then
-                rootPart.Anchored = true
-
-                -- Teleport slightly above target position
-                local safeHeight = 10
-                local initialPos = position + Vector3.new(0, safeHeight, 0)
-                rootPart.CFrame = CFrame.new(initialPos)
-
-                -- Wait for terrain and obstacles to load
-                local terrainLoaded = waitForTerrain(position)
-
-                if terrainLoaded then
-                    validatedPositions[posKey] = true
-
-                    -- Final teleport
-                    local finalPosition = position + Vector3.new(0, 5, 0)
-                    rootPart.CFrame = CFrame.new(finalPosition)
-
-                    -- Ensure movement is restored
-                    task.wait(0.2)
-                    ensureCharacterCanMove()
-                else
-                    warn("Terrain tidak terload sepenuhnya")
-                    ensureCharacterCanMove()
-                end
-            else
-                -- Position already validated, direct teleport
-                local finalPosition = position + Vector3.new(0, 5, 0)
-                rootPart.CFrame = CFrame.new(finalPosition)
-                task.wait(0.1)
-                ensureCharacterCanMove()
+function AntarcticaHub.AutoJump.start()
+    if AntarcticaHub.State.isAutoJumping then return end
+    AntarcticaHub.State.isAutoJumping = true
+    
+    task.spawn(function()
+        while AntarcticaHub.State.isAutoJumping do
+            local humanoid = AntarcticaHub.Player.getHumanoid()
+            if humanoid then
+                humanoid.Jump = true
             end
-            break
+            task.wait(Config.AutoComplete.JumpInterval)
         end
-        tries = tries + 1
-        wait(0.1)
-    end
+    end)
 end
 
---[[ RESPAWN FUNCTION ]] --
-local function respawnCharacter()
-    local player = game.Players.LocalPlayer
-    if player and player.Character then
-        local humanoid = player.Character:FindFirstChild("Humanoid")
-        if humanoid then
-            humanoid.Health = 0 -- This will trigger proper respawn
-        end
-    end
+function AntarcticaHub.AutoJump.stop()
+    AntarcticaHub.State.isAutoJumping = false
 end
 
---[[ AUTO TELEPORT FUNCTION ]] --
-local function startAutoTeleport()
-    if isAutoTeleporting then
-        return
-    end
+--[[ AUTO COMPLETE MODULE ]] --
+AntarcticaHub.AutoComplete = {}
 
-    currentCheckpoint = findNearestCheckpoint()
-    isAutoTeleporting = true
-    isAutoJumping = true
-    startAutoJump()
-
-    spawn(function()
-        while isAutoTeleporting do
-            if currentCheckpoint <= #checkpointOrder then
-                instantTeleportTo(teleportPoints[checkpointOrder[currentCheckpoint]])
-                wait(0.5)
+function AntarcticaHub.AutoComplete.start()
+    if AntarcticaHub.State.isAutoTeleporting then return end
+    
+    AntarcticaHub.State.currentCheckpoint = AntarcticaHub.Movement.findNearestCheckpoint()
+    AntarcticaHub.State.isAutoTeleporting = true
+    AntarcticaHub.AutoJump.start()
+    
+    task.spawn(function()
+        while AntarcticaHub.State.isAutoTeleporting do
+            if AntarcticaHub.State.currentCheckpoint <= #AntarcticaHub.Locations.Checkpoints then
+                local checkpoint = AntarcticaHub.Locations.Checkpoints[AntarcticaHub.State.currentCheckpoint]
+                AntarcticaHub.Movement.teleportTo(checkpoint.Position)
+                task.wait(Config.AutoComplete.TeleportDelay)
             else
-                -- When reaching SOUTHPOLE
-                wait(1)
-                respawnCharacter() -- Respawn instead of teleporting to BASE
-                wait(3) -- Wait for respawn
-                if isAutoTeleporting then
-                    -- Restart from CAMP1 if auto teleport is still enabled
-                    currentCheckpoint = 1
-                    instantTeleportTo(teleportPoints[checkpointOrder[currentCheckpoint]])
-
-                    -- Show restart message
-                    game:GetService("StarterGui"):SetCore("SendNotification", {
-                        Title = "Arcan1ST Script",
-                        Text = "Restarting from CAMP1! 🔄",
-                        Duration = 3
-                    })
+                -- Reached end
+                task.wait(1)
+                AntarcticaHub.Player.respawn()
+                task.wait(Config.AutoComplete.RespawnDelay)
+                
+                if AntarcticaHub.State.isAutoTeleporting then
+                    AntarcticaHub.State.currentCheckpoint = 2 -- Start from CAMP1
+                    local checkpoint = AntarcticaHub.Locations.Checkpoints[AntarcticaHub.State.currentCheckpoint]
+                    AntarcticaHub.Movement.teleportTo(checkpoint.Position)
+                    AntarcticaHub.Utils.notify("Arcan1STHub", "Restarting from CAMP1! 🔄", 3)
                 end
                 break
             end
@@ -336,355 +466,86 @@ local function startAutoTeleport()
     end)
 end
 
---[[ CHECKPOINT DETECTION ]] --
-game:GetService("ReplicatedStorage").Message_Remote.OnClientEvent:Connect(function(message)
-    if typeof(message) == "string" then
-        -- Deteksi South Pole
-        if message:find("You have made it to South Pole") then
-            if isAutoTeleporting then
-                -- Show South Pole completion message
-                game:GetService("StarterGui"):SetCore("SendNotification", {
-                    Title = "Arcan1STHub",
-                    Text = "South Pole Reached! 🎯",
-                    Duration = 2
-                })
-
-                wait(1)
-                respawnCharacter() -- Respawn
-                wait(3) -- Wait for respawn
-
-                if isAutoTeleporting then
-                    -- If auto teleport is still on, restart from CAMP1
-                    currentCheckpoint = 1
-                    wait(0.5) -- Tunggu sebentar setelah respawn
-                    instantTeleportTo(teleportPoints[checkpointOrder[currentCheckpoint]])
-                    game:GetService("StarterGui"):SetCore("SendNotification", {
-                        Title = "Arcan1STHub",
-                        Text = "Restarting from CAMP1! 🔄",
-                        Duration = 3
-                    })
-                else
-                    -- Show completion message
-                    game:GetService("StarterGui"):SetCore("SendNotification", {
-                        Title = "Arcan1STHub",
-                        Text = "Journey Completed! 🎉",
-                        Duration = 3
-                    })
-                end
-
-                isAutoJumping = not isAutoTeleporting -- Stop jumping if auto teleport is off
-            end
-            -- Deteksi Camp biasa
-        elseif message:find("You have made it to Camp") then
-            if isAutoTeleporting then
-                -- Show execution message
-                game:GetService("StarterGui"):SetCore("SendNotification", {
-                    Title = "Arcan1STHub",
-                    Text = "Checkpoint Completed! ⭐",
-                    Duration = 2
-                })
-
-                currentCheckpoint = currentCheckpoint + 1
-                if currentCheckpoint <= #checkpointOrder then
-                    wait(0.5) -- Tunggu sebentar sebelum teleport ke checkpoint berikutnya
-                    instantTeleportTo(teleportPoints[checkpointOrder[currentCheckpoint]])
-                end
-            end
-        end
+function AntarcticaHub.AutoComplete.stop()
+    AntarcticaHub.State.isAutoTeleporting = false
+    AntarcticaHub.AutoJump.stop()
+    AntarcticaHub.Movement.ensureCanMove()
+    
+    -- Ensure character is on ground
+    local rootPart = AntarcticaHub.Player.getRootPart()
+    if rootPart then
+        local currentPos = rootPart.Position
+        local groundPos = currentPos - Vector3.new(0, 3, 0)
+        rootPart.CFrame = CFrame.new(groundPos)
     end
-end)
-
---[[ GUI CREATION ]] --
-local ScreenGui = Instance.new("ScreenGui", game.CoreGui)
-ScreenGui.Name = "Arcan1ST-Antartica"
-
--- Create MinimizedFrame with proper dragging
-local MinimizedFrame = Instance.new("Frame", ScreenGui)
-MinimizedFrame.Size = UDim2.new(0, 120, 0, 30)
-MinimizedFrame.Position = UDim2.new(0, 50, 0.4, 0)
-MinimizedFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-MinimizedFrame.BorderSizePixel = 0
-MinimizedFrame.Active = true
-MinimizedFrame.Visible = false
-Instance.new("UICorner", MinimizedFrame).CornerRadius = UDim.new(0, 8)
-
--- Create drag handle for MinimizedFrame
-local MinimizedDragArea = Instance.new("Frame", MinimizedFrame)
-MinimizedDragArea.Size = UDim2.new(1, 0, 1, 0)
-MinimizedDragArea.BackgroundTransparency = 1
-MinimizedDragArea.Active = true
-
--- Dragging functionality for MinimizedFrame
-local UserInputService = game:GetService("UserInputService")
-local isDragging = false
-local dragStart = nil
-local startPos = nil
-
-MinimizedDragArea.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        isDragging = true
-        dragStart = input.Position
-        startPos = MinimizedFrame.Position
-
-        local connection
-        connection = input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                isDragging = false
-                if connection then
-                    connection:Disconnect()
-                end
-            end
-        end)
-    end
-end)
-
-MinimizedDragArea.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        if isDragging then
-            local delta = input.Position - dragStart
-            MinimizedFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale,
-                startPos.Y.Offset + delta.Y)
-        end
-    end
-end)
-
-local MinimizedLabel = Instance.new("TextButton", MinimizedFrame)
-MinimizedLabel.Size = UDim2.new(1, 0, 1, 0)
-MinimizedLabel.BackgroundTransparency = 1
-MinimizedLabel.Text = "🎯 Arcan1ST"
-MinimizedLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-MinimizedLabel.Font = Enum.Font.SourceSansBold
-MinimizedLabel.TextSize = 14
-
-local MainFrame = Instance.new("Frame", ScreenGui)
-MainFrame.Name = "MainFrame"
-MainFrame.Position = UDim2.new(0, 50, 0.4, 0)
-MainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
-MainFrame.Draggable = true
-MainFrame.AutomaticSize = Enum.AutomaticSize.Y -- Enable automatic Y sizing
-Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
-
---[[ TITLE BAR ]] --
-local TitleBar = Instance.new("Frame", MainFrame)
-TitleBar.Size = UDim2.new(1, 0, 0, 25)
-TitleBar.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-TitleBar.BorderSizePixel = 0
-Instance.new("UICorner", TitleBar).CornerRadius = UDim.new(0, 8)
-
-local Title = Instance.new("TextLabel", TitleBar)
-Title.Size = UDim2.new(1, -50, 1, 0)
-Title.Position = UDim2.new(0, 5, 0, 0)
-Title.BackgroundTransparency = 1
-Title.Text = "Arcan1STHub"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.Font = Enum.Font.SourceSansBold
-Title.TextSize = 14
-Title.TextXAlignment = Enum.TextXAlignment.Left
-
---[[ MINIMIZE BUTTON ]] --
-local MinimizeBtn = Instance.new("TextButton", TitleBar)
-MinimizeBtn.Size = UDim2.new(0, 20, 0, 20)
-MinimizeBtn.Position = UDim2.new(1, -45, 0, 3)
-MinimizeBtn.Text = "−"
-MinimizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-MinimizeBtn.BackgroundColor3 = Color3.fromRGB(60, 180, 75)
-MinimizeBtn.Font = Enum.Font.SourceSansBold
-MinimizeBtn.TextSize = 16
-MinimizeBtn.BorderSizePixel = 0
-Instance.new("UICorner", MinimizeBtn).CornerRadius = UDim.new(0, 4)
-
---[[ CLOSE BUTTON ]] --
-local CloseBtn = Instance.new("TextButton", TitleBar)
-CloseBtn.Size = UDim2.new(0, 20, 0, 20)
-CloseBtn.Position = UDim2.new(1, -25, 0, 3)
-CloseBtn.Text = "❌"
-CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-CloseBtn.Font = Enum.Font.SourceSansBold
-CloseBtn.TextSize = 12
-CloseBtn.BorderSizePixel = 0
-Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 4)
-
---[[ BUTTON CONTAINER ]] --
-local ButtonHolder = Instance.new("Frame", MainFrame)
-ButtonHolder.Size = UDim2.new(1, -10, 0, 0)
-ButtonHolder.Position = UDim2.new(0, 5, 0, 30)
-ButtonHolder.BackgroundTransparency = 1
-ButtonHolder.AutomaticSize = Enum.AutomaticSize.Y -- Enable automatic Y sizing
-
-local layout = Instance.new("UIListLayout", ButtonHolder)
-layout.Padding = UDim.new(0, 5)
-layout.FillDirection = Enum.FillDirection.Vertical
-layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-layout.SortOrder = Enum.SortOrder.LayoutOrder
-
---[[ WATERMARK ]] --
-local Watermark = Instance.new("TextLabel", MainFrame)
-Watermark.Size = UDim2.new(1, 0, 0, 20)
-Watermark.Position = UDim2.new(0, 0, 1, -20)
-Watermark.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-Watermark.Text = "by Arcan1ST ⭐"
-Watermark.TextColor3 = Color3.fromRGB(255, 255, 255)
-Watermark.Font = Enum.Font.SourceSansBold
-Watermark.TextSize = 12
-Watermark.BorderSizePixel = 0
-Instance.new("UICorner", Watermark).CornerRadius = UDim.new(0, 8)
-
---[[ CREATE HYDRATION BUTTON ]] --
-local HydrationBtn = Instance.new("TextButton", ButtonHolder)
-HydrationBtn.Size = UDim2.new(1, 0, 0, 30)
-HydrationBtn.Text = "💧 Auto Hydration"
-HydrationBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-HydrationBtn.BackgroundColor3 = Color3.fromRGB(60, 180, 75)
-HydrationBtn.Font = Enum.Font.SourceSansBold
-HydrationBtn.TextSize = 14
-HydrationBtn.BorderSizePixel = 0
-HydrationBtn.TextXAlignment = Enum.TextXAlignment.Left
-HydrationBtn.TextWrapped = false
-HydrationBtn.LayoutOrder = 0 -- First button
-Instance.new("UIPadding", HydrationBtn).PaddingLeft = UDim.new(0, 10)
-Instance.new("UICorner", HydrationBtn).CornerRadius = UDim.new(0, 6)
-
---[[ CREATE AUTO COMPLETE BUTTON ]] --
-local AutoTpBtn = Instance.new("TextButton", ButtonHolder)
-AutoTpBtn.Size = UDim2.new(1, 0, 0, 30)
-AutoTpBtn.Text = "🎯 Auto Complete"
-AutoTpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-AutoTpBtn.BackgroundColor3 = Color3.fromRGB(60, 180, 75)
-AutoTpBtn.Font = Enum.Font.SourceSansBold
-AutoTpBtn.TextSize = 14
-AutoTpBtn.BorderSizePixel = 0
-AutoTpBtn.TextXAlignment = Enum.TextXAlignment.Left
-AutoTpBtn.TextWrapped = false
-AutoTpBtn.LayoutOrder = 1 -- Second button
-Instance.new("UIPadding", AutoTpBtn).PaddingLeft = UDim.new(0, 10)
-Instance.new("UICorner", AutoTpBtn).CornerRadius = UDim.new(0, 6)
-
---[[ CREATE TELEPORT BUTTONS ]] --
-local buttonOrder = {"BASE", "CAMP1", "CAMP2", "CAMP3", "CAMP4", "SOUTHPOLE"}
-
-for i, name in ipairs(buttonOrder) do
-    local pos = teleportPoints[name]
-    local btn = Instance.new("TextButton", ButtonHolder)
-    btn.Size = UDim2.new(1, 0, 0, 30)
-    btn.Text = "📍 " .. name
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.BackgroundColor3 = Color3.fromRGB(60, 120, 200)
-    btn.Font = Enum.Font.SourceSansBold
-    btn.TextSize = 14
-    btn.BorderSizePixel = 0
-    btn.TextXAlignment = Enum.TextXAlignment.Left
-    btn.TextWrapped = false
-    btn.LayoutOrder = i + 1 -- Start after Auto Complete button
-    Instance.new("UIPadding", btn).PaddingLeft = UDim.new(0, 10)
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
-
-    btn.MouseButton1Click:Connect(function()
-        instantTeleportTo(pos)
-    end)
 end
 
--- Add this function to handle proper stopping
-local function stopAutoComplete()
-    isAutoTeleporting = false
-    isAutoJumping = false
-
-    -- Reset character states
-    local player = game.Players.LocalPlayer
-    if player and player.Character then
-        local humanoid = player.Character:FindFirstChild("Humanoid")
-        local rootPart = player.Character:FindFirstChild("HumanoidRootPart")
-
-        if humanoid and rootPart then
-            -- Reset all movement states
-            rootPart.Anchored = false
-            humanoid.PlatformStand = false
-
-            -- Reset velocities
-            rootPart.Velocity = Vector3.new(0, 0, 0)
-            rootPart.RotVelocity = Vector3.new(0, 0, 0)
-
-            -- Enable all movement states
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Running, true)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, true)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Swimming, true)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
-            humanoid:ChangeState(Enum.HumanoidStateType.Running)
-
-            -- Make sure character is on the ground
-            local currentPosition = rootPart.Position
-            local groundPosition = currentPosition - Vector3.new(0, 3, 0)
-            rootPart.CFrame = CFrame.new(groundPosition)
+function AntarcticaHub.AutoComplete.onCheckpointReached(message)
+    if not AntarcticaHub.State.isAutoTeleporting then return end
+    
+    if message:find("You have made it to South Pole") then
+        AntarcticaHub.Utils.notify("Arcan1STHub", "South Pole Reached! 🎯", 2)
+        
+        task.wait(1)
+        AntarcticaHub.Player.respawn()
+        task.wait(Config.AutoComplete.RespawnDelay)
+        
+        if AntarcticaHub.State.isAutoTeleporting then
+            AntarcticaHub.State.currentCheckpoint = 2
+            local checkpoint = AntarcticaHub.Locations.Checkpoints[AntarcticaHub.State.currentCheckpoint]
+            AntarcticaHub.Movement.teleportTo(checkpoint.Position)
+            AntarcticaHub.Utils.notify("Arcan1STHub", "Restarting from CAMP1! 🔄", 3)
+        else
+            AntarcticaHub.Utils.notify("Arcan1STHub", "Journey Completed! 🎉", 3)
+        end
+        
+        AntarcticaHub.State.isAutoJumping = AntarcticaHub.State.isAutoTeleporting
+        
+    elseif message:find("You have made it to Camp") then
+        AntarcticaHub.Utils.notify("Arcan1STHub", "Checkpoint Completed! ⭐", 2)
+        
+        AntarcticaHub.State.currentCheckpoint = AntarcticaHub.State.currentCheckpoint + 1
+        if AntarcticaHub.State.currentCheckpoint <= #AntarcticaHub.Locations.Checkpoints then
+            task.wait(Config.AutoComplete.TeleportDelay)
+            local checkpoint = AntarcticaHub.Locations.Checkpoints[AntarcticaHub.State.currentCheckpoint]
+            AntarcticaHub.Movement.teleportTo(checkpoint.Position)
         end
     end
 end
 
---[[ BUTTON HANDLERS ]] --
-AutoTpBtn.MouseButton1Click:Connect(function()
-    if isAutoTeleporting then
-        stopAutoComplete() -- Use the new function to stop properly
-        AutoTpBtn.Text = "🎯 Auto Complete"
-        AutoTpBtn.BackgroundColor3 = Color3.fromRGB(60, 180, 75)
+--[[ HYDRATION MODULE ]] --
+AntarcticaHub.Hydration = {}
 
-        -- Show notification that auto complete is stopped
-        game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "Auto Complete",
-            Text = "Stopped ⏹",
-            Duration = 2
-        })
-    else
-        startAutoTeleport()
-        AutoTpBtn.Text = "⏹ Stop Auto Complete"
-        AutoTpBtn.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+function AntarcticaHub.Hydration.getNearestCamp()
+    local rootPart = AntarcticaHub.Player.getRootPart()
+    if not rootPart then return "BASE" end
+    
+    local currentPos = rootPart.Position
+    
+    -- Check if near South Pole
+    local southPolePos = AntarcticaHub.Locations.Checkpoints[6].Position
+    if (currentPos - southPolePos).Magnitude < 500 then
+        return nil
     end
-end)
-
-CloseBtn.MouseButton1Click:Connect(function()
-    stopAutoComplete() -- Make sure to stop properly when closing GUI
-    ScreenGui:Destroy()
-end)
-
---[[ HYDRATION SYSTEM ]] --
-local function getNearestCamp()
-    local char = player.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then
-        return "BASE"
-    end
-
-    local pos = char.HumanoidRootPart.Position
-
-    -- Check if player is at or near SOUTHPOLE
-    local southPolePos = teleportPoints["SOUTHPOLE"]
-    local distanceToSouthPole = (pos - southPolePos).Magnitude
-    if distanceToSouthPole < 500 then -- If within 500 studs of SOUTHPOLE
-        return nil -- Return nil to indicate we shouldn't refill
-    end
-
-    local closestCamp = nil
-    local shortestDistance = math.huge
-
-    for campName, campPos in pairs(teleportPoints) do
-        if campName ~= "SOUTHPOLE" then
-            local dist = (pos - campPos).Magnitude
-            if dist < shortestDistance then
-                shortestDistance = dist
-                closestCamp = campName
-            end
+    
+    local closestCamp = "BASE"
+    local shortestDist = math.huge
+    
+    for name, position in pairs(AntarcticaHub.Locations.FillBottle) do
+        local dist = (currentPos - position).Magnitude
+        if dist < shortestDist then
+            shortestDist = dist
+            closestCamp = name
         end
     end
-
+    
     return closestCamp
 end
 
-local function tryDrink()
-    local character = player.Character
-    if not character then
-        return false
-    end
-
+function AntarcticaHub.Hydration.tryDrink()
+    local character = AntarcticaHub.Player.getCharacter()
+    if not character then return false end
+    
     local waterBottle = character:FindFirstChild("Water Bottle")
     if waterBottle and waterBottle:FindFirstChild("RemoteEvent") then
         waterBottle.RemoteEvent:FireServer()
@@ -693,278 +554,437 @@ local function tryDrink()
     return false
 end
 
-local function fillBottleAtCamp(campName)
-    -- Store current auto-jump state
-    local wasAutoJumping = isAutoJumping
-
-    -- Convert camp name to proper case sensitive format for the remote event
-    local properCampName = campNameMapping[campName] or campName
-
-    -- Get the specific fill location for this camp
-    local fillLocation = fillBottleLocations[campName]
-    if fillLocation then
-        -- Temporarily disable auto-jump for refill
-        isAutoJumping = false
-
-        -- Ensure water bottle is equipped
-        local character = player.Character
-        local backpack = player:WaitForChild("Backpack")
-        local waterBottle = character:FindFirstChild("Water Bottle") or backpack:FindFirstChild("Water Bottle")
-
-        if waterBottle and waterBottle:IsA("Tool") then
-            -- If bottle is in backpack, equip it
-            if waterBottle.Parent == backpack then
-                local humanoid = character:WaitForChild("Humanoid")
-                humanoid:EquipTool(waterBottle)
-                task.wait(0.3) -- Wait for equip animation
-            end
-
-            -- Teleport to fill location and perform fill action
-            instantTeleportTo(fillLocation)
+function AntarcticaHub.Hydration.fillBottle(campName)
+    local wasJumping = AntarcticaHub.State.isAutoJumping
+    AntarcticaHub.State.isAutoJumping = false
+    
+    local properCampName = AntarcticaHub.Locations.CampNames[campName] or campName
+    local fillLocation = AntarcticaHub.Locations.FillBottle[campName]
+    
+    if not fillLocation then return false end
+    
+    local character = AntarcticaHub.Player.getCharacter()
+    local player = AntarcticaHub.Player.get()
+    
+    if not character or not player then
+        AntarcticaHub.State.isAutoJumping = wasJumping
+        return false
+    end
+    
+    local backpack = player:FindFirstChild("Backpack")
+    local waterBottle = character:FindFirstChild("Water Bottle") or (backpack and backpack:FindFirstChild("Water Bottle"))
+    
+    if not waterBottle or not waterBottle:IsA("Tool") then
+        warn("Water Bottle not found")
+        AntarcticaHub.State.isAutoJumping = wasJumping
+        return false
+    end
+    
+    -- Equip bottle if needed
+    if waterBottle.Parent == backpack then
+        local humanoid = AntarcticaHub.Player.getHumanoid()
+        if humanoid then
+            humanoid:EquipTool(waterBottle)
             task.wait(0.3)
-
-            -- Fill bottle
-            local args = {"FillBottle", properCampName, "Water"}
-            ReplicatedStorage:WaitForChild("Events"):WaitForChild("EnergyHydration"):FireServer(unpack(args))
-            task.wait(0.5)
-
-            -- Return to checkpoint immediately after filling
-            if teleportPoints[campName] then
-                instantTeleportTo(teleportPoints[campName])
-            end
-        else
-            warn("Water Bottle tidak ditemukan di Backpack atau Character!")
-        end
-
-        -- Restore previous auto-jump state
-        isAutoJumping = wasAutoJumping
-        if wasAutoJumping then
-            startAutoJump()
         end
     end
+    
+    -- Teleport and fill
+    AntarcticaHub.Movement.teleportTo(fillLocation)
+    task.wait(0.3)
+    
+    local args = {"FillBottle", properCampName, "Water"}
+    local events = AntarcticaHub.Services.ReplicatedStorage:FindFirstChild("Events")
+    if events then
+        local energyHydration = events:FindFirstChild("EnergyHydration")
+        if energyHydration then
+            energyHydration:FireServer(unpack(args))
+        end
+    end
+    
+    task.wait(0.5)
+    
+    -- Return to checkpoint
+    local checkpointPos = nil
+    for _, checkpoint in ipairs(AntarcticaHub.Locations.Checkpoints) do
+        if checkpoint.Name == campName then
+            checkpointPos = checkpoint.Position
+            break
+        end
+    end
+    
+    if checkpointPos then
+        AntarcticaHub.Movement.teleportTo(checkpointPos)
+    end
+    
+    AntarcticaHub.State.isAutoJumping = wasJumping
+    if wasJumping then
+        AntarcticaHub.AutoJump.start()
+    end
+    
+    return true
 end
 
---[[ INITIALIZE HYDRATION SYSTEM ]] --
-task.spawn(function()
-    RunService.RenderStepped:Connect(function()
-        if not isAutoHydrationEnabled then
-            return
-        end
-
-        local hydration = player:GetAttribute("Hydration")
-        -- Only proceed if hydration exists and is below threshold
-        if hydration then
-            -- Add extra check to prevent drinking if hydration is already high
-            if hydration >= 99 then
-                return -- Skip everything if hydration is already at or near 100%
-            end
-
-            if hydration < 50 then -- Only drink when below 50%
-                -- Try to drink and check if hydration increases
-                local beforeDrinkHydration = hydration
-                tryDrink() -- Directly call tryDrink without storing result
-
-                task.wait(0.3) -- Wait for hydration update
-
-                -- Check if drinking actually increased hydration
-                local afterDrinkHydration = player:GetAttribute("Hydration")
-                local hydrationIncreased = afterDrinkHydration > beforeDrinkHydration
-
-                if hydrationIncreased then
-                    -- Keep drinking until we reach near 100%
-                    while player:GetAttribute("Hydration") < 99 do
-                        local currentHydration = player:GetAttribute("Hydration")
-                        local success = tryDrink()
-
-                        task.wait(0.3) -- Wait for hydration update
-                        local newHydration = player:GetAttribute("Hydration")
-
-                        -- Exit if we've reached target hydration
-                        if newHydration >= 99 then
-                            break
+function AntarcticaHub.Hydration.monitor()
+    local lastCheck = 0
+    local CHECK_INTERVAL = 0.5
+    
+    AntarcticaHub.Services.RunService.Heartbeat:Connect(function()
+        if not AntarcticaHub.State.isAutoHydrationEnabled then return end
+        
+        local now = tick()
+        if now - lastCheck < CHECK_INTERVAL then return end
+        lastCheck = now
+        
+        local hydration = AntarcticaHub.Player.getAttribute("Hydration")
+        if not hydration or hydration >= Config.Hydration.TargetLevel then return end
+        
+        if hydration < Config.Hydration.Threshold then
+            local beforeDrink = hydration
+            AntarcticaHub.Hydration.tryDrink()
+            
+            task.wait(0.3)
+            
+            local afterDrink = AntarcticaHub.Player.getAttribute("Hydration")
+            
+            if afterDrink and afterDrink > beforeDrink then
+                -- Keep drinking
+                while true do
+                    local current = AntarcticaHub.Player.getAttribute("Hydration")
+                    if not current or current >= Config.Hydration.TargetLevel then break end
+                    
+                    local success = AntarcticaHub.Hydration.tryDrink()
+                    task.wait(0.3)
+                    
+                    local newLevel = AntarcticaHub.Player.getAttribute("Hydration")
+                    if not success or not newLevel or newLevel <= current then
+                        local camp = AntarcticaHub.Hydration.getNearestCamp()
+                        if camp then
+                            AntarcticaHub.Hydration.fillBottle(camp)
                         end
-
-                        -- If hydration didn't increase or drink failed, we need to refill
-                        if not success or newHydration <= currentHydration then
-                            local nearestCamp = getNearestCamp()
-                            if nearestCamp then -- Will be nil if at SOUTHPOLE
-                                fillBottleAtCamp(nearestCamp)
-                                task.wait(0.3)
-                                -- Try drinking again after refill
-                                tryDrink()
-                            end
-                            break -- Exit loop if we're at SOUTHPOLE or drinking failed after refill
-                        end
-
-                        task.wait(0.2) -- Small wait between drinks
+                        break
                     end
-                else
-                    -- Initial drink didn't increase hydration, try to refill if not at SOUTHPOLE
-                    local nearestCamp = getNearestCamp()
-                    if nearestCamp then
-                        fillBottleAtCamp(nearestCamp)
-
-                        -- After refilling, drink until near 100%
+                    
+                    task.wait(0.2)
+                end
+            else
+                -- Need refill
+                local camp = AntarcticaHub.Hydration.getNearestCamp()
+                if camp then
+                    AntarcticaHub.Hydration.fillBottle(camp)
+                    task.wait(0.3)
+                    
+                    -- Drink after refill
+                    while true do
+                        local current = AntarcticaHub.Player.getAttribute("Hydration")
+                        if not current or current >= Config.Hydration.TargetLevel then break end
+                        
+                        AntarcticaHub.Hydration.tryDrink()
                         task.wait(0.3)
-                        while player:GetAttribute("Hydration") < 99 do
-                            local currentHydration = player:GetAttribute("Hydration")
-                            -- Exit if we've reached target hydration
-                            if currentHydration >= 99 then
-                                break
-                            end
-
-                            local success = tryDrink()
-                            task.wait(0.3)
-                            local newHydration = player:GetAttribute("Hydration")
-                            if not success or newHydration <= currentHydration then
-                                break
-                            end
-
-                            task.wait(0.2)
-                        end
+                        
+                        local newLevel = AntarcticaHub.Player.getAttribute("Hydration")
+                        if not newLevel or newLevel <= current then break end
+                        
+                        task.wait(0.2)
                     end
                 end
             end
         end
     end)
-end)
+end
 
---[[ INITIALIZE PROTECTION ]] --
-task.spawn(function()
-    local player = game.Players.LocalPlayer
+--[[ GUI MODULE ]] --
+AntarcticaHub.GUI = {}
 
-    -- Wait for character to load if not already loaded
-    if not player.Character then
-        player.CharacterAdded:Wait()
+function AntarcticaHub.GUI.create()
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "Arcan1ST-Antarctica"
+    ScreenGui.ResetOnSpawn = false
+    ScreenGui.Parent = game.CoreGui
+    
+    -- Main Frame
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Name = "MainFrame"
+    MainFrame.Size = UDim2.new(0, 200, 0, 0)
+    MainFrame.Position = UDim2.new(0, 50, 0.4, 0)
+    MainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    MainFrame.BorderSizePixel = 0
+    MainFrame.Active = true
+    MainFrame.Draggable = true
+    MainFrame.AutomaticSize = Enum.AutomaticSize.Y
+    MainFrame.Parent = ScreenGui
+    
+    local mainCorner = Instance.new("UICorner")
+    mainCorner.CornerRadius = UDim.new(0, 8)
+    mainCorner.Parent = MainFrame
+    
+    -- Title Bar
+    local TitleBar = Instance.new("Frame")
+    TitleBar.Size = UDim2.new(1, 0, 0, 30)
+    TitleBar.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    TitleBar.BorderSizePixel = 0
+    TitleBar.Parent = MainFrame
+    
+    local titleCorner = Instance.new("UICorner")
+    titleCorner.CornerRadius = UDim.new(0, 8)
+    titleCorner.Parent = TitleBar
+    
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1, -60, 1, 0)
+    Title.Position = UDim2.new(0, 10, 0, 0)
+    Title.BackgroundTransparency = 1
+    Title.Text = "Arcan1STHub v" .. Config.Version
+    Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Title.Font = Enum.Font.SourceSansBold
+    Title.TextSize = 14
+    Title.TextXAlignment = Enum.TextXAlignment.Left
+    Title.Parent = TitleBar
+    
+    -- Minimize Button
+    local MinimizeBtn = Instance.new("TextButton")
+    MinimizeBtn.Size = UDim2.new(0, 25, 0, 25)
+    MinimizeBtn.Position = UDim2.new(1, -55, 0, 2.5)
+    MinimizeBtn.Text = "−"
+    MinimizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    MinimizeBtn.BackgroundColor3 = Color3.fromRGB(60, 180, 75)
+    MinimizeBtn.Font = Enum.Font.SourceSansBold
+    MinimizeBtn.TextSize = 18
+    MinimizeBtn.BorderSizePixel = 0
+    MinimizeBtn.Parent = TitleBar
+    
+    local minCorner = Instance.new("UICorner")
+    minCorner.CornerRadius = UDim.new(0, 4)
+    minCorner.Parent = MinimizeBtn
+    
+    -- Close Button
+    local CloseBtn = Instance.new("TextButton")
+    CloseBtn.Size = UDim2.new(0, 25, 0, 25)
+    CloseBtn.Position = UDim2.new(1, -28, 0, 2.5)
+    CloseBtn.Text = "✕"
+    CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+    CloseBtn.Font = Enum.Font.SourceSansBold
+    CloseBtn.TextSize = 16
+    CloseBtn.BorderSizePixel = 0
+    CloseBtn.Parent = TitleBar
+    
+    local closeCorner = Instance.new("UICorner")
+    closeCorner.CornerRadius = UDim.new(0, 4)
+    closeCorner.Parent = CloseBtn
+    
+    -- Button Container
+    local ButtonHolder = Instance.new("Frame")
+    ButtonHolder.Size = UDim2.new(1, -20, 0, 0)
+    ButtonHolder.Position = UDim2.new(0, 10, 0, 40)
+    ButtonHolder.BackgroundTransparency = 1
+    ButtonHolder.AutomaticSize = Enum.AutomaticSize.Y
+    ButtonHolder.Parent = MainFrame
+    
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 5)
+    layout.FillDirection = Enum.FillDirection.Vertical
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Parent = ButtonHolder
+    
+    -- Create Buttons
+    local function createButton(text, color, order)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, 0, 0, 35)
+        btn.Text = text
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.BackgroundColor3 = color
+        btn.Font = Enum.Font.SourceSansBold
+        btn.TextSize = 14
+        btn.BorderSizePixel = 0
+        btn.TextXAlignment = Enum.TextXAlignment.Left
+        btn.LayoutOrder = order
+        btn.Parent = ButtonHolder
+        
+        local padding = Instance.new("UIPadding")
+        padding.PaddingLeft = UDim.new(0, 10)
+        padding.Parent = btn
+        
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 6)
+        corner.Parent = btn
+        
+        return btn
     end
-
-    setupAntiFallDamage()
-
-    -- Setup character protection for future respawns
-    player.CharacterAdded:Connect(function(char)
-        wait(1) -- Wait for character to fully load
-        setupAntiFallDamage()
-
-        -- Additional safety: Connect to touched events
-        char.DescendantAdded:Connect(function(desc)
-            if desc:IsA("Script") and desc.Name:find("Damage") then
-                desc:Destroy()
-            end
+    
+    -- Auto Hydration Button
+    local HydrationBtn = createButton("💧 Auto Hydration: ON", Color3.fromRGB(60, 180, 75), 1)
+    
+    -- Auto Complete Button
+    local AutoCompleteBtn = createButton("🎯 Auto Complete", Color3.fromRGB(60, 180, 75), 2)
+    
+    -- Teleport Buttons
+    local teleportButtons = {}
+    for i, checkpoint in ipairs(AntarcticaHub.Locations.Checkpoints) do
+        local btn = createButton("📍 " .. checkpoint.Name, Color3.fromRGB(60, 120, 200), i + 2)
+        btn.MouseButton1Click:Connect(function()
+            AntarcticaHub.Movement.teleportTo(checkpoint.Position)
         end)
-    end)
-end)
-
---[[ INITIALIZE CHARACTER MOVEMENT ]] --
-task.spawn(function()
-    local player = game.Players.LocalPlayer
-
-    -- Fix current character
-    if player.Character then
-        ensureCharacterCanMove()
+        table.insert(teleportButtons, btn)
     end
-
-    -- Fix future characters
-    player.CharacterAdded:Connect(function(char)
-        task.wait(0.5) -- Wait for character to fully load
-        ensureCharacterCanMove()
-    end)
-
-    -- Periodically check and fix movement
-    task.spawn(function()
-        while wait(1) do
-            if player.Character then
-                local rootPart = player.Character:FindFirstChild("HumanoidRootPart")
-                local humanoid = player.Character:FindFirstChild("Humanoid")
-                if rootPart and rootPart.Anchored or (humanoid and humanoid.PlatformStand) then
-                    ensureCharacterCanMove()
-                end
-            end
-        end
-    end)
-end)
-
---[[ MINIMIZE/MAXIMIZE HANDLER ]] --
-MinimizeBtn.MouseButton1Click:Connect(function()
-    -- Save current position before minimizing
-    local currentPos = MainFrame.Position
-    MinimizedFrame.Position = currentPos
-    MainFrame.Visible = false
-    MinimizedFrame.Visible = true
+    
+    -- Watermark
+    local Watermark = Instance.new("TextLabel")
+    Watermark.Size = UDim2.new(1, 0, 0, 25)
+    Watermark.Position = UDim2.new(0, 0, 1, -25)
+    Watermark.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    Watermark.Text = "by Arcan1ST ⭐"
+    Watermark.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Watermark.Font = Enum.Font.SourceSansBold
+    Watermark.TextSize = 12
+    Watermark.BorderSizePixel = 0
+    Watermark.Parent = MainFrame
+    
+    local waterCorner = Instance.new("UICorner")
+    waterCorner.CornerRadius = UDim.new(0, 8)
+    waterCorner.Parent = Watermark
+    
+    -- Minimized Frame
+    local MinimizedFrame = Instance.new("Frame")
+    MinimizedFrame.Size = UDim2.new(0, 140, 0, 35)
+    MinimizedFrame.Position = UDim2.new(0, 50, 0.4, 0)
+    MinimizedFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    MinimizedFrame.BorderSizePixel = 0
     MinimizedFrame.Active = true
-    MinimizedFrame.Draggable = false -- Disable default dragging
-end)
-
-MinimizedLabel.MouseButton1Click:Connect(function()
-    -- Save current position before maximizing
-    local currentPos = MinimizedFrame.Position
-    MainFrame.Position = currentPos
-    MainFrame.Visible = true
     MinimizedFrame.Visible = false
-end)
-
--- Enhanced dragging system for MinimizedFrame
-local dragging = false
-local dragStart = nil
-local startPos = nil
-local dragInput = nil
-
--- Make entire MinimizedFrame draggable
-local function updateDrag(input)
-    if dragging then
-        local delta = input.Position - dragStart
-        MinimizedFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale,
-            startPos.Y.Offset + delta.Y)
-    end
+    MinimizedFrame.Parent = ScreenGui
+    
+    local minFrameCorner = Instance.new("UICorner")
+    minFrameCorner.CornerRadius = UDim.new(0, 8)
+    minFrameCorner.Parent = MinimizedFrame
+    
+    local MinimizedLabel = Instance.new("TextButton")
+    MinimizedLabel.Size = UDim2.new(1, 0, 1, 0)
+    MinimizedLabel.BackgroundTransparency = 1
+    MinimizedLabel.Text = "🎯 Arcan1ST"
+    MinimizedLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    MinimizedLabel.Font = Enum.Font.SourceSansBold
+    MinimizedLabel.TextSize = 16
+    MinimizedLabel.Parent = MinimizedFrame
+    
+    -- Button Events
+    HydrationBtn.MouseButton1Click:Connect(function()
+        AntarcticaHub.State.isAutoHydrationEnabled = not AntarcticaHub.State.isAutoHydrationEnabled
+        HydrationBtn.Text = string.format("💧 Auto Hydration: %s", 
+            AntarcticaHub.State.isAutoHydrationEnabled and "ON" or "OFF")
+        HydrationBtn.BackgroundColor3 = AntarcticaHub.State.isAutoHydrationEnabled and 
+            Color3.fromRGB(60, 180, 75) or Color3.fromRGB(180, 60, 60)
+    end)
+    
+    AutoCompleteBtn.MouseButton1Click:Connect(function()
+        if AntarcticaHub.State.isAutoTeleporting then
+            AntarcticaHub.AutoComplete.stop()
+            AutoCompleteBtn.Text = "🎯 Auto Complete"
+            AutoCompleteBtn.BackgroundColor3 = Color3.fromRGB(60, 180, 75)
+            AntarcticaHub.Utils.notify("Auto Complete", "Stopped ⏹", 2)
+        else
+            AntarcticaHub.AutoComplete.start()
+            AutoCompleteBtn.Text = "⏹ Stop Auto Complete"
+            AutoCompleteBtn.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+        end
+    end)
+    
+    CloseBtn.MouseButton1Click:Connect(function()
+        AntarcticaHub.AutoComplete.stop()
+        ScreenGui:Destroy()
+    end)
+    
+    MinimizeBtn.MouseButton1Click:Connect(function()
+        local currentPos = MainFrame.Position
+        MinimizedFrame.Position = currentPos
+        MainFrame.Visible = false
+        MinimizedFrame.Visible = true
+    end)
+    
+    MinimizedLabel.MouseButton1Click:Connect(function()
+        local currentPos = MinimizedFrame.Position
+        MainFrame.Position = currentPos
+        MainFrame.Visible = true
+        MinimizedFrame.Visible = false
+    end)
+    
+    -- Dragging for MinimizedFrame
+    local UserInputService = AntarcticaHub.Services.UserInputService
+    local dragging = false
+    local dragStart = nil
+    local startPos = nil
+    
+    MinimizedFrame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+           input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = MinimizedFrame.Position
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+    
+    MinimizedFrame.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or 
+           input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            MinimizedFrame.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+    
+    return ScreenGui
 end
 
-MinimizedFrame.InputBegan:Connect(function(input)
-    if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
-        dragging = true
-        dragStart = input.Position
-        startPos = MinimizedFrame.Position
-
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
+--[[ INITIALIZATION ]] --
+function AntarcticaHub:Init()
+    self.Utils.log("Initializing Arcan1ST Antarctica Hub v" .. Config.Version)
+    
+    -- Setup anti-cheat bypasses
+    self.AntiCheat.setupValueSpoof()
+    self.AntiCheat.setupKickProtection()
+    self.AntiCheat.setupFallDamageProtection()
+    
+    -- Setup message listener
+    local replicatedStorage = self.Services.ReplicatedStorage
+    local messageRemote = replicatedStorage:FindFirstChild("Message_Remote")
+    
+    if messageRemote then
+        messageRemote.OnClientEvent:Connect(function(message)
+            if typeof(message) == "string" then
+                self.AutoComplete.onCheckpointReached(message)
             end
         end)
     end
-end)
-
-MinimizedFrame.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        dragInput = input
+    
+    -- Setup character respawn handler
+    local player = self.Player.get()
+    if player then
+        player.CharacterAdded:Connect(function(character)
+            task.wait(1)
+            self.Player.clearCache()
+            self.Movement.ensureCanMove()
+        end)
     end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        updateDrag(input)
-    end
-end)
-
--- Function to update positions between frames
-local function updatePosition(from, to)
-    from.Changed:Connect(function(property)
-        if property == "Position" and from.Visible then
-            to.Position = from.Position
-        end
-    end)
+    
+    -- Start hydration monitor
+    self.Hydration.monitor()
+    
+    -- Create GUI
+    self.GUI.create()
+    
+    self.Utils.log("Initialization complete")
+    self.Utils.notify("Arcan1STHub", "Loaded successfully! v" .. Config.Version, 3)
 end
 
--- Keep positions synced between frames
-updatePosition(MainFrame, MinimizedFrame)
-updatePosition(MinimizedFrame, MainFrame)
+-- Initialize the hub
+AntarcticaHub:Init()
 
---[[ SET MAIN FRAME WIDTH ]] --
-MainFrame.Size = UDim2.new(0, 180, 0, 0) -- Width fixed, height automatic
-
---[[ UPDATE WATERMARK POSITION ]] --
-task.spawn(function()
-    while task.wait() do
-        if MainFrame.Visible then
-            local totalHeight = ButtonHolder.AbsoluteSize.Y + 50 -- 30 for title + 20 for watermark
-            Watermark.Position = UDim2.new(0, 0, 0, totalHeight)
-        end
-    end
-end)
+return AntarcticaHub
