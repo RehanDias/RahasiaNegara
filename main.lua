@@ -1,12 +1,12 @@
 --[[
-    Arcan1ST Antarctica Script
-    Version: 2.0.0
-    Improved Architecture & Performance
+    Arcan1ST Antarctica Script - Reyna Edition
+    Version: 2.1.0-Reyna
+    Fixed & Improved
 ]]--
 
 --[[ CONFIGURATION ]] --
 local Config = {
-    Version = "2.0.0",
+    Version = "2.1.0-Reyna",
     Debug = false,
     
     Hydration = {
@@ -28,6 +28,22 @@ local Config = {
         DefaultJump = 50
     }
 }
+
+--[[ LOAD WINDUI (Stable Version) ]] --
+local WindUI = loadstring(game:HttpGet('https://raw.githubusercontent.com/Footagesus/WindUI/refs/heads/main/main.client.lua'))()
+
+--[[ TEMA REYNA (Eye of Reyna Style) ]] --
+local ReynaTheme = {
+    Name = "Reyna",
+    Accent = Color3.fromRGB(160, 32, 240), -- Ungu Neon Reyna
+    Outline = Color3.fromRGB(80, 0, 120),
+    Text = Color3.fromRGB(240, 230, 255),
+    PlaceholderText = Color3.fromRGB(150, 130, 180),
+    Background = Color3.fromRGB(15, 10, 25), -- Hitam Kebiruan Gelap
+    Item = Color3.fromRGB(25, 20, 35),
+    ItemOutline = Color3.fromRGB(50, 30, 70),
+}
+WindUI:AddTheme(ReynaTheme)
 
 --[[ MODULE: AntarcticaHub ]] --
 local AntarcticaHub = {}
@@ -86,6 +102,13 @@ AntarcticaHub.State = {
     cachedRootPart = nil
 }
 
+--[[ UI ELEMENTS STORAGE ]] --
+AntarcticaHub.UI = {
+    HydrationToggle = nil,
+    AutoCompleteButton = nil,
+    Window = nil,
+}
+
 --[[ UTILITY MODULE ]] --
 AntarcticaHub.Utils = {}
 
@@ -109,13 +132,12 @@ function AntarcticaHub.Utils.safeCall(func, ...)
 end
 
 function AntarcticaHub.Utils.notify(title, text, duration)
-    AntarcticaHub.Utils.safeCall(function()
-        AntarcticaHub.Services.StarterGui:SetCore("SendNotification", {
-            Title = title or "Arcan1STHub",
-            Text = text,
-            Duration = duration or 3
-        })
-    end)
+    WindUI:Notify({
+        Title = title or "Arcan1STHub",
+        Content = text,
+        Duration = duration or 3,
+        Icon = "eye",
+    })
 end
 
 function AntarcticaHub.Utils.createPosKey(position)
@@ -264,12 +286,10 @@ function AntarcticaHub.AntiCheat.setupFallDamageProtection()
         local humanoid = character:WaitForChild("Humanoid", 5)
         if not humanoid then return end
         
-        -- Disable damage states
         humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
         humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
         humanoid:SetStateEnabled(Enum.HumanoidStateType.Physics, false)
         
-        -- Health protection
         local lastHealth = humanoid.Health
         humanoid.HealthChanged:Connect(function(health)
             if health < lastHealth and health > 0 then
@@ -278,7 +298,6 @@ function AntarcticaHub.AntiCheat.setupFallDamageProtection()
             lastHealth = health
         end)
         
-        -- Remove damage scripts
         character.ChildAdded:Connect(function(child)
             if child:IsA("Script") then
                 local name = child.Name:lower()
@@ -290,7 +309,6 @@ function AntarcticaHub.AntiCheat.setupFallDamageProtection()
         end)
     end
     
-    -- Protect current and future characters
     if player.Character then
         protectCharacter(player.Character)
     end
@@ -311,12 +329,10 @@ function AntarcticaHub.Movement.ensureCanMove()
     
     if not humanoid or not rootPart then return end
     
-    -- Reset states
     rootPart.Anchored = false
     humanoid.PlatformStand = false
     humanoid:ChangeState(Enum.HumanoidStateType.Running)
     
-    -- Enable movement states
     local states = {
         Enum.HumanoidStateType.Running,
         Enum.HumanoidStateType.Climbing,
@@ -329,7 +345,6 @@ function AntarcticaHub.Movement.ensureCanMove()
         humanoid:SetStateEnabled(state, true)
     end
     
-    -- Reset velocities
     rootPart.Velocity = Vector3.zero
     rootPart.RotVelocity = Vector3.zero
 end
@@ -358,20 +373,16 @@ function AntarcticaHub.Movement.teleportTo(position)
     
     local posKey = AntarcticaHub.Utils.createPosKey(position)
     
-    -- Reset velocities
     rootPart.Velocity = Vector3.zero
     rootPart.RotVelocity = Vector3.zero
     
-    -- Check if position is validated
     if not AntarcticaHub.State.validatedPositions[posKey] then
         rootPart.Anchored = true
         
-        -- Initial teleport above target
         local safeHeight = 10
         local initialPos = position + Vector3.new(0, safeHeight, 0)
         rootPart.CFrame = CFrame.new(initialPos)
         
-        -- Wait for terrain
         local terrainLoaded = AntarcticaHub.Movement.waitForTerrain(position, 5)
         
         if terrainLoaded then
@@ -379,7 +390,6 @@ function AntarcticaHub.Movement.teleportTo(position)
         end
     end
     
-    -- Final teleport
     local finalPosition = position + Vector3.new(0, 5, 0)
     rootPart.CFrame = CFrame.new(finalPosition)
     
@@ -397,7 +407,7 @@ function AntarcticaHub.Movement.findNearestCheckpoint()
     local nearestDist = math.huge
     local nearestIndex = 1
     
-    for i = 2, #AntarcticaHub.Locations.Checkpoints do -- Skip BASE
+    for i = 2, #AntarcticaHub.Locations.Checkpoints do
         local checkpoint = AntarcticaHub.Locations.Checkpoints[i]
         local dist = (currentPos - checkpoint.Position).Magnitude
         
@@ -449,13 +459,12 @@ function AntarcticaHub.AutoComplete.start()
                 AntarcticaHub.Movement.teleportTo(checkpoint.Position)
                 task.wait(Config.AutoComplete.TeleportDelay)
             else
-                -- Reached end
                 task.wait(1)
                 AntarcticaHub.Player.respawn()
                 task.wait(Config.AutoComplete.RespawnDelay)
                 
                 if AntarcticaHub.State.isAutoTeleporting then
-                    AntarcticaHub.State.currentCheckpoint = 2 -- Start from CAMP1
+                    AntarcticaHub.State.currentCheckpoint = 2
                     local checkpoint = AntarcticaHub.Locations.Checkpoints[AntarcticaHub.State.currentCheckpoint]
                     AntarcticaHub.Movement.teleportTo(checkpoint.Position)
                     AntarcticaHub.Utils.notify("Arcan1STHub", "Restarting from CAMP1! 🔄", 3)
@@ -471,7 +480,6 @@ function AntarcticaHub.AutoComplete.stop()
     AntarcticaHub.AutoJump.stop()
     AntarcticaHub.Movement.ensureCanMove()
     
-    -- Ensure character is on ground
     local rootPart = AntarcticaHub.Player.getRootPart()
     if rootPart then
         local currentPos = rootPart.Position
@@ -522,7 +530,6 @@ function AntarcticaHub.Hydration.getNearestCamp()
     
     local currentPos = rootPart.Position
     
-    -- Check if near South Pole
     local southPolePos = AntarcticaHub.Locations.Checkpoints[6].Position
     if (currentPos - southPolePos).Magnitude < 500 then
         return nil
@@ -580,7 +587,6 @@ function AntarcticaHub.Hydration.fillBottle(campName)
         return false
     end
     
-    -- Equip bottle if needed
     if waterBottle.Parent == backpack then
         local humanoid = AntarcticaHub.Player.getHumanoid()
         if humanoid then
@@ -589,7 +595,6 @@ function AntarcticaHub.Hydration.fillBottle(campName)
         end
     end
     
-    -- Teleport and fill
     AntarcticaHub.Movement.teleportTo(fillLocation)
     task.wait(0.3)
     
@@ -604,7 +609,6 @@ function AntarcticaHub.Hydration.fillBottle(campName)
     
     task.wait(0.5)
     
-    -- Return to checkpoint
     local checkpointPos = nil
     for _, checkpoint in ipairs(AntarcticaHub.Locations.Checkpoints) do
         if checkpoint.Name == campName then
@@ -648,7 +652,6 @@ function AntarcticaHub.Hydration.monitor()
             local afterDrink = AntarcticaHub.Player.getAttribute("Hydration")
             
             if afterDrink and afterDrink > beforeDrink then
-                -- Keep drinking
                 while true do
                     local current = AntarcticaHub.Player.getAttribute("Hydration")
                     if not current or current >= Config.Hydration.TargetLevel then break end
@@ -668,13 +671,11 @@ function AntarcticaHub.Hydration.monitor()
                     task.wait(0.2)
                 end
             else
-                -- Need refill
                 local camp = AntarcticaHub.Hydration.getNearestCamp()
                 if camp then
                     AntarcticaHub.Hydration.fillBottle(camp)
                     task.wait(0.3)
                     
-                    -- Drink after refill
                     while true do
                         local current = AntarcticaHub.Player.getAttribute("Hydration")
                         if not current or current >= Config.Hydration.TargetLevel then break end
@@ -693,261 +694,327 @@ function AntarcticaHub.Hydration.monitor()
     end)
 end
 
---[[ GUI MODULE ]] --
+--[[ WINDUI GUI MODULE ]] --
 AntarcticaHub.GUI = {}
 
 function AntarcticaHub.GUI.create()
-    local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "Arcan1ST-Antarctica"
-    ScreenGui.ResetOnSpawn = false
-    ScreenGui.Parent = game.CoreGui
+    -- Create Window
+    local Window = WindUI:CreateWindow({
+        Title = "Arcan1ST Hub",
+        Subtitle = "Eye of Reyna Edition",
+        Icon = "rbxassetid://6031075931",
+        Author = "by Arcan1ST",
+        Folder = "Arcan1STAntarctica",
+        Size = UDim2.fromOffset(550, 420),
+        Theme = "Reyna",
+        Transparent = true,
+        Resizable = true,
+        SideBarWidth = 170,
+        HasOutline = true,
+    })
     
-    -- Main Frame
-    local MainFrame = Instance.new("Frame")
-    MainFrame.Name = "MainFrame"
-    MainFrame.Size = UDim2.new(0, 200, 0, 0)
-    MainFrame.Position = UDim2.new(0, 50, 0.4, 0)
-    MainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-    MainFrame.BorderSizePixel = 0
-    MainFrame.Active = true
-    MainFrame.Draggable = true
-    MainFrame.AutomaticSize = Enum.AutomaticSize.Y
-    MainFrame.Parent = ScreenGui
+    AntarcticaHub.UI.Window = Window
     
-    local mainCorner = Instance.new("UICorner")
-    mainCorner.CornerRadius = UDim.new(0, 8)
-    mainCorner.Parent = MainFrame
+    -- Create Tabs
+    local MainTab = Window:Tab({
+        Title = "Main",
+        Icon = "home",
+    })
     
-    -- Title Bar
-    local TitleBar = Instance.new("Frame")
-    TitleBar.Size = UDim2.new(1, 0, 0, 30)
-    TitleBar.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-    TitleBar.BorderSizePixel = 0
-    TitleBar.Parent = MainFrame
+    local TeleportsTab = Window:Tab({
+        Title = "Teleports",
+        Icon = "map-pin",
+    })
     
-    local titleCorner = Instance.new("UICorner")
-    titleCorner.CornerRadius = UDim.new(0, 8)
-    titleCorner.Parent = TitleBar
+    local SettingsTab = Window:Tab({
+        Title = "Settings",
+        Icon = "settings",
+    })
     
-    local Title = Instance.new("TextLabel")
-    Title.Size = UDim2.new(1, -60, 1, 0)
-    Title.Position = UDim2.new(0, 10, 0, 0)
-    Title.BackgroundTransparency = 1
-    Title.Text = "Arcan1STHub v" .. Config.Version
-    Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Title.Font = Enum.Font.SourceSansBold
-    Title.TextSize = 14
-    Title.TextXAlignment = Enum.TextXAlignment.Left
-    Title.Parent = TitleBar
+    --[[ MAIN TAB ]] --
     
-    -- Minimize Button
-    local MinimizeBtn = Instance.new("TextButton")
-    MinimizeBtn.Size = UDim2.new(0, 25, 0, 25)
-    MinimizeBtn.Position = UDim2.new(1, -55, 0, 2.5)
-    MinimizeBtn.Text = "−"
-    MinimizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    MinimizeBtn.BackgroundColor3 = Color3.fromRGB(60, 180, 75)
-    MinimizeBtn.Font = Enum.Font.SourceSansBold
-    MinimizeBtn.TextSize = 18
-    MinimizeBtn.BorderSizePixel = 0
-    MinimizeBtn.Parent = TitleBar
+    -- Status Section
+    local StatusSection = MainTab:Section({
+        Title = "Status",
+        Icon = "activity",
+    })
     
-    local minCorner = Instance.new("UICorner")
-    minCorner.CornerRadius = UDim.new(0, 4)
-    minCorner.Parent = MinimizeBtn
+    StatusSection:Paragraph({
+        Title = "Welcome Agent",
+        Desc = "Use Eye of Reyna's power to dominate Antarctica. Toggle features below to automate your journey or control manually.",
+        Icon = "eye",
+    })
     
-    -- Close Button
-    local CloseBtn = Instance.new("TextButton")
-    CloseBtn.Size = UDim2.new(0, 25, 0, 25)
-    CloseBtn.Position = UDim2.new(1, -28, 0, 2.5)
-    CloseBtn.Text = "✕"
-    CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-    CloseBtn.Font = Enum.Font.SourceSansBold
-    CloseBtn.TextSize = 16
-    CloseBtn.BorderSizePixel = 0
-    CloseBtn.Parent = TitleBar
+    -- Automation Section
+    local AutoSection = MainTab:Section({
+        Title = "Automation",
+        Icon = "zap",
+    })
     
-    local closeCorner = Instance.new("UICorner")
-    closeCorner.CornerRadius = UDim.new(0, 4)
-    closeCorner.Parent = CloseBtn
+    AntarcticaHub.UI.AutoCompleteButton = AutoSection:Button({
+        Title = "Start Auto Complete",
+        Desc = "Automatically complete the entire journey",
+        Icon = "play",
+        Callback = function()
+            if AntarcticaHub.State.isAutoTeleporting then
+                AntarcticaHub.AutoComplete.stop()
+                AntarcticaHub.UI.AutoCompleteButton:SetTitle("Start Auto Complete")
+                AntarcticaHub.Utils.notify("Auto Complete", "Stopped ⏹", 2)
+            else
+                AntarcticaHub.AutoComplete.start()
+                AntarcticaHub.UI.AutoCompleteButton:SetTitle("Stop Auto Complete")
+                AntarcticaHub.Utils.notify("Auto Complete", "Started! 🚀", 2)
+            end
+        end
+    })
     
-    -- Button Container
-    local ButtonHolder = Instance.new("Frame")
-    ButtonHolder.Size = UDim2.new(1, -20, 0, 0)
-    ButtonHolder.Position = UDim2.new(0, 10, 0, 40)
-    ButtonHolder.BackgroundTransparency = 1
-    ButtonHolder.AutomaticSize = Enum.AutomaticSize.Y
-    ButtonHolder.Parent = MainFrame
+    AntarcticaHub.UI.HydrationToggle = AutoSection:Toggle({
+        Title = "Auto Hydration",
+        Desc = "Automatically drink and refill water",
+        Icon = "droplet",
+        Value = Config.Hydration.Enabled,
+        Callback = function(state)
+            AntarcticaHub.State.isAutoHydrationEnabled = state
+            local statusText = state and "Enabled ✓" or "Disabled ✗"
+            AntarcticaHub.Utils.notify("Auto Hydration", statusText, 2)
+        end
+    })
     
-    local layout = Instance.new("UIListLayout")
-    layout.Padding = UDim.new(0, 5)
-    layout.FillDirection = Enum.FillDirection.Vertical
-    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.Parent = ButtonHolder
+    -- Manual Section
+    local ManualSection = MainTab:Section({
+        Title = "Manual Controls",
+        Icon = "hand",
+    })
     
-    -- Create Buttons
-    local function createButton(text, color, order)
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(1, 0, 0, 35)
-        btn.Text = text
-        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        btn.BackgroundColor3 = color
-        btn.Font = Enum.Font.SourceSansBold
-        btn.TextSize = 14
-        btn.BorderSizePixel = 0
-        btn.TextXAlignment = Enum.TextXAlignment.Left
-        btn.LayoutOrder = order
-        btn.Parent = ButtonHolder
-        
-        local padding = Instance.new("UIPadding")
-        padding.PaddingLeft = UDim.new(0, 10)
-        padding.Parent = btn
-        
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 6)
-        corner.Parent = btn
-        
-        return btn
-    end
+    ManualSection:Button({
+        Title = "Drink Water",
+        Desc = "Manually drink from bottle",
+        Icon = "coffee",
+        Callback = function()
+            local success = AntarcticaHub.Hydration.tryDrink()
+            if success then
+                AntarcticaHub.Utils.notify("Hydration", "Drinking... 💧", 1.5)
+            else
+                AntarcticaHub.Utils.notify("Hydration", "No water bottle!", 2)
+            end
+        end
+    })
     
-    -- Auto Hydration Button
-    local HydrationBtn = createButton("💧 Auto Hydration: ON", Color3.fromRGB(60, 180, 75), 1)
+    ManualSection:Button({
+        Title = "Fill Water Bottle",
+        Desc = "Refill at nearest camp",
+        Icon = "glass-water",
+        Callback = function()
+            local camp = AntarcticaHub.Hydration.getNearestCamp()
+            if camp then
+                AntarcticaHub.Hydration.fillBottle(camp)
+                AntarcticaHub.Utils.notify("Hydration", "Refilling at " .. camp, 2)
+            else
+                AntarcticaHub.Utils.notify("Hydration", "No camp nearby!", 2)
+            end
+        end
+    })
     
-    -- Auto Complete Button
-    local AutoCompleteBtn = createButton("🎯 Auto Complete", Color3.fromRGB(60, 180, 75), 2)
+    ManualSection:Button({
+        Title = "Respawn Character",
+        Desc = "Respawn instantly",
+        Icon = "refresh-cw",
+        Callback = function()
+            AntarcticaHub.Player.respawn()
+            AntarcticaHub.Utils.notify("Player", "Respawning...", 2)
+        end
+    })
     
-    -- Teleport Buttons
-    local teleportButtons = {}
+    --[[ TELEPORTS TAB ]] --
+    
+    local CheckpointsSection = TeleportsTab:Section({
+        Title = "Game Checkpoints",
+        Icon = "flag",
+    })
+    
+    local icons = {
+        "home", "tent-tree", "mountain", "mountain-snow", "flag-triangle-right", "target"
+    }
+    
+    local descriptions = {
+        "Base Camp - Starting point",
+        "Camp 1 - First checkpoint",
+        "Camp 2 - Second checkpoint",
+        "Camp 3 - Third checkpoint",
+        "Camp 4 - Fourth checkpoint",
+        "South Pole - Final destination"
+    }
+    
     for i, checkpoint in ipairs(AntarcticaHub.Locations.Checkpoints) do
-        local btn = createButton("📍 " .. checkpoint.Name, Color3.fromRGB(60, 120, 200), i + 2)
-        btn.MouseButton1Click:Connect(function()
-            AntarcticaHub.Movement.teleportTo(checkpoint.Position)
-        end)
-        table.insert(teleportButtons, btn)
+        CheckpointsSection:Button({
+            Title = checkpoint.Name,
+            Desc = descriptions[i],
+            Icon = icons[i] or "map",
+            Callback = function()
+                AntarcticaHub.Movement.teleportTo(checkpoint.Position)
+                AntarcticaHub.Utils.notify("Teleport", "→ " .. checkpoint.Name, 2)
+            end
+        })
     end
     
-    -- Watermark
-    local Watermark = Instance.new("TextLabel")
-    Watermark.Size = UDim2.new(1, 0, 0, 25)
-    Watermark.Position = UDim2.new(0, 0, 1, -25)
-    Watermark.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-    Watermark.Text = "by Arcan1ST ⭐"
-    Watermark.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Watermark.Font = Enum.Font.SourceSansBold
-    Watermark.TextSize = 12
-    Watermark.BorderSizePixel = 0
-    Watermark.Parent = MainFrame
+    --[[ SETTINGS TAB ]] --
     
-    local waterCorner = Instance.new("UICorner")
-    waterCorner.CornerRadius = UDim.new(0, 8)
-    waterCorner.Parent = Watermark
+    local TimingSection = SettingsTab:Section({
+        Title = "Timing Configuration",
+        Icon = "clock",
+    })
     
-    -- Minimized Frame
-    local MinimizedFrame = Instance.new("Frame")
-    MinimizedFrame.Size = UDim2.new(0, 140, 0, 35)
-    MinimizedFrame.Position = UDim2.new(0, 50, 0.4, 0)
-    MinimizedFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-    MinimizedFrame.BorderSizePixel = 0
-    MinimizedFrame.Active = true
-    MinimizedFrame.Visible = false
-    MinimizedFrame.Parent = ScreenGui
+    TimingSection:Slider({
+        Title = "Teleport Delay",
+        Desc = "Delay between teleports",
+        Step = 0.1,
+        Value = {
+            Min = 0.1,
+            Max = 3.0,
+            Default = Config.AutoComplete.TeleportDelay,
+        },
+        Callback = function(value)
+            Config.AutoComplete.TeleportDelay = value
+        end
+    })
     
-    local minFrameCorner = Instance.new("UICorner")
-    minFrameCorner.CornerRadius = UDim.new(0, 8)
-    minFrameCorner.Parent = MinimizedFrame
+    TimingSection:Slider({
+        Title = "Jump Interval",
+        Desc = "Time between jumps",
+        Step = 0.1,
+        Value = {
+            Min = 0.1,
+            Max = 2.0,
+            Default = Config.AutoComplete.JumpInterval,
+        },
+        Callback = function(value)
+            Config.AutoComplete.JumpInterval = value
+        end
+    })
     
-    local MinimizedLabel = Instance.new("TextButton")
-    MinimizedLabel.Size = UDim2.new(1, 0, 1, 0)
-    MinimizedLabel.BackgroundTransparency = 1
-    MinimizedLabel.Text = "🎯 Arcan1ST"
-    MinimizedLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    MinimizedLabel.Font = Enum.Font.SourceSansBold
-    MinimizedLabel.TextSize = 16
-    MinimizedLabel.Parent = MinimizedFrame
+    TimingSection:Slider({
+        Title = "Respawn Delay",
+        Desc = "Wait time after respawn",
+        Step = 0.5,
+        Value = {
+            Min = 1.0,
+            Max = 10.0,
+            Default = Config.AutoComplete.RespawnDelay,
+        },
+        Callback = function(value)
+            Config.AutoComplete.RespawnDelay = value
+        end
+    })
     
-    -- Button Events
-    HydrationBtn.MouseButton1Click:Connect(function()
-        AntarcticaHub.State.isAutoHydrationEnabled = not AntarcticaHub.State.isAutoHydrationEnabled
-        HydrationBtn.Text = string.format("💧 Auto Hydration: %s", 
-            AntarcticaHub.State.isAutoHydrationEnabled and "ON" or "OFF")
-        HydrationBtn.BackgroundColor3 = AntarcticaHub.State.isAutoHydrationEnabled and 
-            Color3.fromRGB(60, 180, 75) or Color3.fromRGB(180, 60, 60)
-    end)
+    local HydrationSection = SettingsTab:Section({
+        Title = "Hydration Settings",
+        Icon = "droplet",
+    })
     
-    AutoCompleteBtn.MouseButton1Click:Connect(function()
-        if AntarcticaHub.State.isAutoTeleporting then
+    HydrationSection:Slider({
+        Title = "Hydration Threshold",
+        Desc = "Trigger auto-drink below this",
+        Step = 1,
+        Value = {
+            Min = 10,
+            Max = 90,
+            Default = Config.Hydration.Threshold,
+        },
+        Callback = function(value)
+            Config.Hydration.Threshold = value
+        end
+    })
+    
+    HydrationSection:Slider({
+        Title = "Hydration Target",
+        Desc = "Stop drinking at this level",
+        Step = 1,
+        Value = {
+            Min = 50,
+            Max = 99,
+            Default = Config.Hydration.TargetLevel,
+        },
+        Callback = function(value)
+            Config.Hydration.TargetLevel = value
+        end
+    })
+    
+    local ProtectionSection = SettingsTab:Section({
+        Title = "Protection",
+        Icon = "shield",
+    })
+    
+    ProtectionSection:Toggle({
+        Title = "Speed Spoof",
+        Desc = "Hide modified walk speed",
+        Icon = "gauge",
+        Value = Config.AntiCheat.SpoofSpeed,
+        Callback = function(state)
+            Config.AntiCheat.SpoofSpeed = state
+        end
+    })
+    
+    ProtectionSection:Toggle({
+        Title = "Jump Spoof",
+        Desc = "Hide modified jump power",
+        Icon = "arrow-up",
+        Value = Config.AntiCheat.SpoofJump,
+        Callback = function(state)
+            Config.AntiCheat.SpoofJump = state
+        end
+    })
+    
+    ProtectionSection:Toggle({
+        Title = "Debug Mode",
+        Desc = "Show console messages (F9)",
+        Icon = "bug",
+        Value = Config.Debug,
+        Callback = function(state)
+            Config.Debug = state
+        end
+    })
+    
+    local InfoSection = SettingsTab:Section({
+        Title = "Information",
+        Icon = "info",
+    })
+    
+    InfoSection:Paragraph({
+        Title = "Eye of Reyna Edition",
+        Desc = "Antarctica automation script with Reyna-themed UI. Features auto-completion, intelligent hydration, teleports, and anti-cheat protection.",
+        Icon = "eye",
+    })
+    
+    InfoSection:Button({
+        Title = "Reload Script",
+        Desc = "Restart the script",
+        Icon = "rotate-cw",
+        Callback = function()
             AntarcticaHub.AutoComplete.stop()
-            AutoCompleteBtn.Text = "🎯 Auto Complete"
-            AutoCompleteBtn.BackgroundColor3 = Color3.fromRGB(60, 180, 75)
-            AntarcticaHub.Utils.notify("Auto Complete", "Stopped ⏹", 2)
-        else
-            AntarcticaHub.AutoComplete.start()
-            AutoCompleteBtn.Text = "⏹ Stop Auto Complete"
-            AutoCompleteBtn.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+            AntarcticaHub.Utils.notify("System", "Reloading...", 2)
+            task.wait(1)
+            AntarcticaHub:Init()
         end
-    end)
+    })
     
-    CloseBtn.MouseButton1Click:Connect(function()
-        AntarcticaHub.AutoComplete.stop()
-        ScreenGui:Destroy()
-    end)
-    
-    MinimizeBtn.MouseButton1Click:Connect(function()
-        local currentPos = MainFrame.Position
-        MinimizedFrame.Position = currentPos
-        MainFrame.Visible = false
-        MinimizedFrame.Visible = true
-    end)
-    
-    MinimizedLabel.MouseButton1Click:Connect(function()
-        local currentPos = MinimizedFrame.Position
-        MainFrame.Position = currentPos
-        MainFrame.Visible = true
-        MinimizedFrame.Visible = false
-    end)
-    
-    -- Dragging for MinimizedFrame
-    local UserInputService = AntarcticaHub.Services.UserInputService
-    local dragging = false
-    local dragStart = nil
-    local startPos = nil
-    
-    MinimizedFrame.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or 
-           input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = MinimizedFrame.Position
-            
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
-            end)
+    -- Toggle Key Setup with Keybind
+    SettingsTab:Keybind({
+        Title = "Toggle UI Key",
+        Desc = "Hotkey to open/close menu",
+        Value = Enum.KeyCode.RightControl,
+        Callback = function(key)
+            -- WindUI handles this natively
         end
-    end)
+    })
     
-    MinimizedFrame.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or 
-           input.UserInputType == Enum.UserInputType.Touch) then
-            local delta = input.Position - dragStart
-            MinimizedFrame.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + delta.X,
-                startPos.Y.Scale, startPos.Y.Offset + delta.Y
-            )
-        end
-    end)
-    
-    return ScreenGui
+    return Window
 end
 
 --[[ INITIALIZATION ]] --
 function AntarcticaHub:Init()
-    self.Utils.log("Initializing Arcan1ST Antarctica Hub v" .. Config.Version)
+    self.Utils.log("Initializing Arcan1ST Antarctica Hub - Reyna Edition v" .. Config.Version)
     
-    -- Setup anti-cheat bypasses
+    -- Setup anti-cheat
     self.AntiCheat.setupValueSpoof()
     self.AntiCheat.setupKickProtection()
     self.AntiCheat.setupFallDamageProtection()
@@ -964,7 +1031,7 @@ function AntarcticaHub:Init()
         end)
     end
     
-    -- Setup character respawn handler
+    -- Setup character respawn
     local player = self.Player.get()
     if player then
         player.CharacterAdded:Connect(function(character)
@@ -974,14 +1041,21 @@ function AntarcticaHub:Init()
         end)
     end
     
-    -- Start hydration monitor
+    -- Start monitors
     self.Hydration.monitor()
     
     -- Create GUI
     self.GUI.create()
     
     self.Utils.log("Initialization complete")
-    self.Utils.notify("Arcan1STHub", "Loaded successfully! v" .. Config.Version, 3)
+    
+    -- Welcome notification
+    WindUI:Notify({
+        Title = "Welcome Agent",
+        Content = "Eye of Reyna Edition loaded successfully!\nPress Right Ctrl to toggle UI.",
+        Icon = "eye",
+        Duration = 5
+    })
 end
 
 -- Initialize the hub
