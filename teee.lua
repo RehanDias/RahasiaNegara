@@ -1,25 +1,21 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
-local hydrationThreshold = 50
 local isAutoHydrationEnabled = true
-local validatedPositions = {}
 
 local teleportPoints = {
-    ["BASE"] = Vector3.new(-6016.00, -159.00, -28.57),
-    ["CAMP1"] = Vector3.new(-3720.19, 225.00, 235.91),
-    ["CAMP2"] = Vector3.new(1790.79, 105.45, -136.89),
-    ["CAMP3"] = Vector3.new(5891.24, 321.00, -18.60),
-    ["CAMP4"] = Vector3.new(8992.07, 595.59, 103.63),
+    ["BASE"]      = Vector3.new(-6016.00, -159.00, -28.57),
+    ["CAMP1"]     = Vector3.new(-3720.19, 225.00, 235.91),
+    ["CAMP2"]     = Vector3.new(1790.79, 105.45, -136.89),
+    ["CAMP3"]     = Vector3.new(5891.24, 321.00, -18.60),
+    ["CAMP4"]     = Vector3.new(8992.07, 595.59, 103.63),
     ["SOUTHPOLE"] = Vector3.new(10993.19, 549.13, 100.13)
 }
 
 local fillBottleLocations = {
-    ["BASE"] = Vector3.new(-6042.84, -158.95, -59.00),
+    ["BASE"]  = Vector3.new(-6042.84, -158.95, -59.00),
     ["CAMP1"] = Vector3.new(-3718.06, 228.94, 261.38),
     ["CAMP2"] = Vector3.new(1799.14, 105.37, -161.86),
     ["CAMP3"] = Vector3.new(5885.90, 321.00, 4.62),
@@ -27,7 +23,7 @@ local fillBottleLocations = {
 }
 
 local campNameMapping = {
-    ["BASE"] = "BaseCamp",
+    ["BASE"]  = "BaseCamp",
     ["CAMP1"] = "Camp1",
     ["CAMP2"] = "Camp2",
     ["CAMP3"] = "Camp3",
@@ -39,84 +35,16 @@ local currentCheckpoint = 1
 local isAutoTeleporting = false
 local isAutoJumping = false
 
-local function findNearestCheckpoint()
-    local p = game.Players.LocalPlayer
-    if not p then return 1 end
-    if not p.Character then
-        p.CharacterAdded:Wait()
-    end
-    local character = p.Character
-    if not character then return 1 end
-    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
-    if not humanoidRootPart then return 1 end
-    local currentPos = humanoidRootPart.Position
-    local nearestDist = math.huge
-    local nearestIndex = 1
-    for i, checkpointName in ipairs(checkpointOrder) do
-        local checkpointPos = teleportPoints[checkpointName]
-        local dist = (currentPos - checkpointPos).Magnitude
-        if dist < nearestDist then
-            nearestDist = dist
-            nearestIndex = i
-        end
-    end
-    return nearestIndex
+local function rng(a, b)
+    return a + math.random() * (b - a)
 end
 
-local function startAutoJump()
-    spawn(function()
-        while isAutoJumping do
-            local p = game.Players.LocalPlayer
-            if p and p.Character then
-                local humanoid = p.Character:FindFirstChild("Humanoid")
-                if humanoid then
-                    humanoid.Jump = true
-                end
-            end
-            wait(0.5)
-        end
-    end)
+local function randWait(a, b)
+    task.wait(rng(a, b))
 end
 
-local function setupAntiFallDamage()
-    local p = game.Players.LocalPlayer
-    if not p then return end
-    local function protectFromDamage(char)
-        if not char then return end
-        local humanoid = char:FindFirstChild("Humanoid")
-        if not humanoid then return end
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.Flying, true)
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.Landed, false)
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.Physics, false)
-        local lastHealth = humanoid.Health
-        humanoid.HealthChanged:Connect(function(health)
-            if health < lastHealth and health > 0 then
-                humanoid.Health = lastHealth
-            end
-            lastHealth = health
-        end)
-        char.ChildAdded:Connect(function(child)
-            if child:IsA("Script") then
-                if child.Name:find("Fall") or child.Name:find("Damage") or child.Name:find("freeze") or child.Name:find("Water") then
-                    task.wait()
-                    child:Destroy()
-                end
-            end
-        end)
-        for _, child in pairs(char:GetChildren()) do
-            if child:IsA("Script") then
-                if child.Name:find("Fall") or child.Name:find("Damage") or child.Name:find("freeze") or child.Name:find("Water") then
-                    child:Destroy()
-                end
-            end
-        end
-    end
-    if p.Character then
-        protectFromDamage(p.Character)
-    end
-    p.CharacterAdded:Connect(protectFromDamage)
+local function randOffset()
+    return Vector3.new(rng(-1.8, 1.8), 0, rng(-1.8, 1.8))
 end
 
 local function ensureCharacterCanMove()
@@ -138,43 +66,104 @@ local function ensureCharacterCanMove()
     end
 end
 
-local function tweenTo(position)
+local function saferTeleport(position)
+    local char = player.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    root.Velocity = Vector3.new(0, 0, 0)
+    root.RotVelocity = Vector3.new(0, 0, 0)
+
+    if math.random() < 0.65 then
+        root.Anchored = true
+    end
+
+    local finalPos = position + Vector3.new(0, rng(4, 6.5), 0) + randOffset()
+    local target = CFrame.new(finalPos)
+
+    for i = 1, math.random(6, 10) do
+        root.CFrame = root.CFrame:Lerp(target, i / 10)
+        task.wait(rng(0.03, 0.08))
+    end
+
+    root.CFrame = target
+    root.Anchored = false
+
+    randWait(0.45, 0.9)
+    ensureCharacterCanMove()
+end
+
+local function findNearestCheckpoint()
+    local p = game.Players.LocalPlayer
+    if not p then return 1 end
+    if not p.Character then p.CharacterAdded:Wait() end
+    local character = p.Character
+    if not character then return 1 end
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return 1 end
+    local currentPos = hrp.Position
+    local nearestDist = math.huge
+    local nearestIndex = 1
+    for i, checkpointName in ipairs(checkpointOrder) do
+        local dist = (currentPos - teleportPoints[checkpointName]).Magnitude
+        if dist < nearestDist then
+            nearestDist = dist
+            nearestIndex = i
+        end
+    end
+    return nearestIndex
+end
+
+local function startAutoJump()
+    task.spawn(function()
+        while isAutoJumping do
+            local p = game.Players.LocalPlayer
+            if p and p.Character then
+                local humanoid = p.Character:FindFirstChild("Humanoid")
+                if humanoid then
+                    humanoid.Jump = true
+                end
+            end
+            task.wait(rng(0.45, 0.75))
+        end
+    end)
+end
+
+local function setupAntiFallDamage()
     local p = game.Players.LocalPlayer
     if not p then return end
-    if not p.Character then
-        p.CharacterAdded:Wait()
-    end
-    local char = p.Character
-    if not char then return end
-    local tries = 0
-    while tries < 10 do
+    local function protectFromDamage(char)
+        if not char then return end
         local humanoid = char:FindFirstChild("Humanoid")
-        local rootPart = char:FindFirstChild("HumanoidRootPart")
-        if humanoid and rootPart then
-            local posKey = tostring(math.floor(position.X)) .. "," .. tostring(math.floor(position.Y)) .. "," .. tostring(math.floor(position.Z))
-
-            rootPart.Velocity = Vector3.new(0, 0, 0)
-            rootPart.RotVelocity = Vector3.new(0, 0, 0)
-            rootPart.Anchored = true
-
-            local targetCFrame = CFrame.new(position + Vector3.new(0, 5, 0))
-            local distance = (rootPart.Position - targetCFrame.Position).Magnitude
-            local tweenSpeed = 200
-            local duration = math.clamp(distance / tweenSpeed, 0.3, 6)
-
-            local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
-            local tween = TweenService:Create(rootPart, tweenInfo, {CFrame = targetCFrame})
-            tween:Play()
-            tween.Completed:Wait()
-
-            validatedPositions[posKey] = true
-            task.wait(0.2)
-            ensureCharacterCanMove()
-            break
+        if not humanoid then return end
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+        local lastHealth = humanoid.Health
+        humanoid.HealthChanged:Connect(function(health)
+            if health < lastHealth and health > 0 then
+                humanoid.Health = lastHealth
+            end
+            lastHealth = health
+        end)
+        char.ChildAdded:Connect(function(child)
+            if child:IsA("Script") then
+                if child.Name:find("Fall") or child.Name:find("Damage") or child.Name:find("freeze") then
+                    task.wait()
+                    child:Destroy()
+                end
+            end
+        end)
+        for _, child in pairs(char:GetChildren()) do
+            if child:IsA("Script") then
+                if child.Name:find("Fall") or child.Name:find("Damage") or child.Name:find("freeze") then
+                    child:Destroy()
+                end
+            end
         end
-        tries = tries + 1
-        wait(0.1)
     end
+    if p.Character then protectFromDamage(p.Character) end
+    p.CharacterAdded:Connect(protectFromDamage)
 end
 
 local function respawnCharacter()
@@ -193,18 +182,32 @@ local function startAutoTeleport()
     isAutoTeleporting = true
     isAutoJumping = true
     startAutoJump()
-    spawn(function()
+    task.spawn(function()
         while isAutoTeleporting do
             if currentCheckpoint <= #checkpointOrder then
-                tweenTo(teleportPoints[checkpointOrder[currentCheckpoint]])
-                wait(0.5)
+                saferTeleport(teleportPoints[checkpointOrder[currentCheckpoint]])
+                randWait(0.8, 2.0)
+
+                task.spawn(function()
+                    while true do
+                        task.wait(rng(20, 40))
+                        if isAutoTeleporting and math.random(100) <= 30 then
+                            local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+                            if root then
+                                root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(rng(-15, 15)), 0)
+                                task.wait(rng(0.3, 0.8))
+                            end
+                        end
+                    end
+                end)
             else
-                wait(1)
+                randWait(1.2, 2.2)
                 respawnCharacter()
-                wait(3)
+                randWait(3.0, 5.0)
                 if isAutoTeleporting then
                     currentCheckpoint = 1
-                    tweenTo(teleportPoints[checkpointOrder[currentCheckpoint]])
+                    randWait(0.5, 1.2)
+                    saferTeleport(teleportPoints[checkpointOrder[currentCheckpoint]])
                     game:GetService("StarterGui"):SetCore("SendNotification", {
                         Title = "Arcan1ST Script",
                         Text = "Restarting from CAMP1! 🔄",
@@ -226,13 +229,13 @@ game:GetService("ReplicatedStorage").Message_Remote.OnClientEvent:Connect(functi
                     Text = "South Pole Reached! 🎯",
                     Duration = 2
                 })
-                wait(1)
+                randWait(1.0, 2.0)
                 respawnCharacter()
-                wait(3)
+                randWait(3.0, 5.0)
                 if isAutoTeleporting then
                     currentCheckpoint = 1
-                    wait(0.5)
-                    tweenTo(teleportPoints[checkpointOrder[currentCheckpoint]])
+                    randWait(0.5, 1.5)
+                    saferTeleport(teleportPoints[checkpointOrder[currentCheckpoint]])
                     game:GetService("StarterGui"):SetCore("SendNotification", {
                         Title = "Arcan1STHub",
                         Text = "Restarting from CAMP1! 🔄",
@@ -256,8 +259,8 @@ game:GetService("ReplicatedStorage").Message_Remote.OnClientEvent:Connect(functi
                 })
                 currentCheckpoint = currentCheckpoint + 1
                 if currentCheckpoint <= #checkpointOrder then
-                    wait(0.5)
-                    tweenTo(teleportPoints[checkpointOrder[currentCheckpoint]])
+                    randWait(0.7, 1.6)
+                    saferTeleport(teleportPoints[checkpointOrder[currentCheckpoint]])
                 end
             end
         end
@@ -390,7 +393,7 @@ Instance.new("UICorner", Watermark).CornerRadius = UDim.new(0, 8)
 
 local HydrationBtn = Instance.new("TextButton", ButtonHolder)
 HydrationBtn.Size = UDim2.new(1, 0, 0, 30)
-HydrationBtn.Text = "💧 Auto Hydration"
+HydrationBtn.Text = "💧 Auto Hydration: ON"
 HydrationBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 HydrationBtn.BackgroundColor3 = Color3.fromRGB(60, 180, 75)
 HydrationBtn.Font = Enum.Font.SourceSansBold
@@ -401,6 +404,17 @@ HydrationBtn.TextWrapped = false
 HydrationBtn.LayoutOrder = 0
 Instance.new("UIPadding", HydrationBtn).PaddingLeft = UDim.new(0, 10)
 Instance.new("UICorner", HydrationBtn).CornerRadius = UDim.new(0, 6)
+
+HydrationBtn.MouseButton1Click:Connect(function()
+    isAutoHydrationEnabled = not isAutoHydrationEnabled
+    if isAutoHydrationEnabled then
+        HydrationBtn.Text = "💧 Auto Hydration: ON"
+        HydrationBtn.BackgroundColor3 = Color3.fromRGB(60, 180, 75)
+    else
+        HydrationBtn.Text = "💧 Auto Hydration: OFF"
+        HydrationBtn.BackgroundColor3 = Color3.fromRGB(120, 120, 120)
+    end
+end)
 
 local AutoTpBtn = Instance.new("TextButton", ButtonHolder)
 AutoTpBtn.Size = UDim2.new(1, 0, 0, 30)
@@ -434,7 +448,7 @@ for i, name in ipairs(buttonOrder) do
     Instance.new("UIPadding", btn).PaddingLeft = UDim.new(0, 10)
     Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
     btn.MouseButton1Click:Connect(function()
-        tweenTo(pos)
+        saferTeleport(pos)
     end)
 end
 
@@ -456,9 +470,6 @@ local function stopAutoComplete()
             humanoid:SetStateEnabled(Enum.HumanoidStateType.Swimming, true)
             humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
             humanoid:ChangeState(Enum.HumanoidStateType.Running)
-            local currentPosition = rootPart.Position
-            local groundPosition = currentPosition - Vector3.new(0, 3, 0)
-            rootPart.CFrame = CFrame.new(groundPosition)
         end
     end
 end
@@ -489,9 +500,7 @@ local function getNearestCamp()
     local char = player.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return "BASE" end
     local pos = char.HumanoidRootPart.Position
-    local southPolePos = teleportPoints["SOUTHPOLE"]
-    local distanceToSouthPole = (pos - southPolePos).Magnitude
-    if distanceToSouthPole < 500 then return nil end
+    if (pos - teleportPoints["SOUTHPOLE"]).Magnitude < 500 then return nil end
     local closestCamp = nil
     local shortestDistance = math.huge
     for campName, campPos in pairs(teleportPoints) do
@@ -504,6 +513,19 @@ local function getNearestCamp()
         end
     end
     return closestCamp
+end
+
+local function isBottleFull()
+    local char = player.Character
+    if not char then return false end
+    local bottle = char:FindFirstChild("Water Bottle")
+    if bottle then
+        local fullAttr = bottle:GetAttribute("WaterAmount") or bottle:GetAttribute("Amount") or bottle:GetAttribute("Water")
+        if fullAttr then
+            return fullAttr >= 95
+        end
+    end
+    return false
 end
 
 local function tryDrink()
@@ -519,84 +541,82 @@ end
 
 local function fillBottleAtCamp(campName)
     local wasAutoJumping = isAutoJumping
+    isAutoJumping = false
+
     local properCampName = campNameMapping[campName] or campName
     local fillLocation = fillBottleLocations[campName]
-    if fillLocation then
-        isAutoJumping = false
-        local character = player.Character
-        local backpack = player:WaitForChild("Backpack")
-        local waterBottle = character:FindFirstChild("Water Bottle") or backpack:FindFirstChild("Water Bottle")
-        if waterBottle and waterBottle:IsA("Tool") then
-            if waterBottle.Parent == backpack then
-                local humanoid = character:WaitForChild("Humanoid")
-                humanoid:EquipTool(waterBottle)
-                task.wait(0.3)
-            end
-            tweenTo(fillLocation)
-            task.wait(0.3)
-            local args = {"FillBottle", properCampName, "Water"}
-            ReplicatedStorage:WaitForChild("Events"):WaitForChild("EnergyHydration"):FireServer(unpack(args))
-            task.wait(0.5)
-            if teleportPoints[campName] then
-                tweenTo(teleportPoints[campName])
-            end
-        else
-            warn("Water Bottle tidak ditemukan di Backpack atau Character!")
-        end
+    if not fillLocation then
         isAutoJumping = wasAutoJumping
-        if wasAutoJumping then startAutoJump() end
+        return
     end
+    if isBottleFull() then
+        isAutoJumping = wasAutoJumping
+        return
+    end
+
+    local character = player.Character
+    local backpack = player:WaitForChild("Backpack")
+    local waterBottle = character:FindFirstChild("Water Bottle") or backpack:FindFirstChild("Water Bottle")
+
+    if waterBottle and waterBottle:IsA("Tool") then
+        if waterBottle.Parent == backpack then
+            local humanoid = character:WaitForChild("Humanoid")
+            humanoid:EquipTool(waterBottle)
+            randWait(0.4, 0.7)
+        end
+        saferTeleport(fillLocation)
+        randWait(1.3, 2.6)
+
+        if math.random() < 0.5 then
+            task.wait(rng(0.6, 1.4))
+        end
+
+        ReplicatedStorage:WaitForChild("Events"):WaitForChild("EnergyHydration"):FireServer("FillBottle", properCampName, "Water")
+
+        randWait(0.9, 1.8)
+        if teleportPoints[campName] then
+            saferTeleport(teleportPoints[campName])
+        end
+    end
+
+    isAutoJumping = wasAutoJumping
+    if wasAutoJumping then startAutoJump() end
 end
 
 task.spawn(function()
-    RunService.RenderStepped:Connect(function()
-        if not isAutoHydrationEnabled then return end
+    while true do
+        task.wait(rng(5.0, 9.0))
+
+        if not isAutoHydrationEnabled then continue end
+
         local hydration = player:GetAttribute("Hydration")
-        if hydration then
-            if hydration >= 99 then return end
-            if hydration < 50 then
-                local beforeDrinkHydration = hydration
-                tryDrink()
-                task.wait(0.3)
-                local afterDrinkHydration = player:GetAttribute("Hydration")
-                local hydrationIncreased = afterDrinkHydration > beforeDrinkHydration
-                if hydrationIncreased then
-                    while player:GetAttribute("Hydration") < 99 do
-                        local currentHydration = player:GetAttribute("Hydration")
-                        local success = tryDrink()
-                        task.wait(0.3)
-                        local newHydration = player:GetAttribute("Hydration")
-                        if newHydration >= 99 then break end
-                        if not success or newHydration <= currentHydration then
-                            local nearestCamp = getNearestCamp()
-                            if nearestCamp then
-                                fillBottleAtCamp(nearestCamp)
-                                task.wait(0.3)
-                                tryDrink()
-                            end
-                            break
-                        end
-                        task.wait(0.2)
-                    end
-                else
-                    local nearestCamp = getNearestCamp()
-                    if nearestCamp then
-                        fillBottleAtCamp(nearestCamp)
-                        task.wait(0.3)
-                        while player:GetAttribute("Hydration") < 99 do
-                            local currentHydration = player:GetAttribute("Hydration")
-                            if currentHydration >= 99 then break end
-                            local success = tryDrink()
-                            task.wait(0.3)
-                            local newHydration = player:GetAttribute("Hydration")
-                            if not success or newHydration <= currentHydration then break end
-                            task.wait(0.2)
-                        end
-                    end
-                end
+        if not hydration or hydration >= 93 then continue end
+
+        if hydration > 40 and math.random(100) <= 42 then
+            continue
+        end
+
+        local target = math.random(84, 96)
+
+        while true do
+            local cur = player:GetAttribute("Hydration")
+            if not cur or cur >= target then break end
+            tryDrink()
+            if cur > 75 then
+                randWait(1.0, 2.0)
+            else
+                randWait(0.6, 1.3)
             end
         end
-    end)
+
+        if hydration < 50 and math.random(100) <= 35 then
+            local nearest = getNearestCamp()
+            if nearest then
+                randWait(1.0, 2.0)
+                fillBottleAtCamp(nearest)
+            end
+        end
+    end
 end)
 
 task.spawn(function()
@@ -604,7 +624,7 @@ task.spawn(function()
     if not p.Character then p.CharacterAdded:Wait() end
     setupAntiFallDamage()
     p.CharacterAdded:Connect(function(char)
-        wait(1)
+        task.wait(1)
         setupAntiFallDamage()
         char.DescendantAdded:Connect(function(desc)
             if desc:IsA("Script") and desc.Name:find("Damage") then
@@ -617,16 +637,16 @@ end)
 task.spawn(function()
     local p = game.Players.LocalPlayer
     if p.Character then ensureCharacterCanMove() end
-    p.CharacterAdded:Connect(function(char)
+    p.CharacterAdded:Connect(function()
         task.wait(0.5)
         ensureCharacterCanMove()
     end)
     task.spawn(function()
-        while wait(1) do
+        while task.wait(rng(10, 16)) do
             if p.Character then
                 local rootPart = p.Character:FindFirstChild("HumanoidRootPart")
                 local humanoid = p.Character:FindFirstChild("Humanoid")
-                if rootPart and rootPart.Anchored or (humanoid and humanoid.PlatformStand) then
+                if (rootPart and rootPart.Anchored) or (humanoid and humanoid.PlatformStand) then
                     ensureCharacterCanMove()
                 end
             end
@@ -640,7 +660,6 @@ MinimizeBtn.MouseButton1Click:Connect(function()
     MainFrame.Visible = false
     MinimizedFrame.Visible = true
     MinimizedFrame.Active = true
-    MinimizedFrame.Draggable = false
 end)
 
 MinimizedLabel.MouseButton1Click:Connect(function()
@@ -663,7 +682,7 @@ local function updateDrag(input)
 end
 
 MinimizedFrame.InputBegan:Connect(function(input)
-    if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         dragging = true
         dragStart2 = input.Position
         startPos2 = MinimizedFrame.Position
@@ -687,7 +706,7 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
-local function updatePosition(from, to)
+local function syncPosition(from, to)
     from.Changed:Connect(function(property)
         if property == "Position" and from.Visible then
             to.Position = from.Position
@@ -695,8 +714,8 @@ local function updatePosition(from, to)
     end)
 end
 
-updatePosition(MainFrame, MinimizedFrame)
-updatePosition(MinimizedFrame, MainFrame)
+syncPosition(MainFrame, MinimizedFrame)
+syncPosition(MinimizedFrame, MainFrame)
 
 MainFrame.Size = UDim2.new(0, 180, 0, 0)
 
