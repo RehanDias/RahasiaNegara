@@ -72,25 +72,25 @@ local function saferTeleport(position)
     local root = char:FindFirstChild("HumanoidRootPart")
     if not root then return end
 
-    root.Velocity = Vector3.new(0, 0, 0)
-    root.RotVelocity = Vector3.new(0, 0, 0)
+    root.AssemblyLinearVelocity = Vector3.new(rng(-4, 4), rng(2, 6), rng(-4, 4))
 
-    if math.random() < 0.65 then
-        root.Anchored = true
-    end
+    local willAnchor = math.random() < 0.45
+    if willAnchor then root.Anchored = true end
 
-    local finalPos = position + Vector3.new(0, rng(4, 6.5), 0) + randOffset()
-    local target = CFrame.new(finalPos)
+    local finalPos = position + Vector3.new(0, rng(4, 8), 0) + randOffset()
+    local target = CFrame.new(finalPos) * CFrame.Angles(0, math.rad(rng(-15, 15)), 0)
 
-    for i = 1, math.random(6, 10) do
-        root.CFrame = root.CFrame:Lerp(target, i / 10)
-        task.wait(rng(0.03, 0.08))
+    local steps = math.random(9, 15)
+    for i = 1, steps do
+        root.CFrame = root.CFrame:Lerp(target, i / steps)
+        task.wait(rng(0.018, 0.065))
     end
 
     root.CFrame = target
     root.Anchored = false
+    root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
 
-    randWait(0.45, 0.9)
+    randWait(0.6, 1.4)
     ensureCharacterCanMove()
 end
 
@@ -186,33 +186,15 @@ local function startAutoTeleport()
         while isAutoTeleporting do
             if currentCheckpoint <= #checkpointOrder then
                 saferTeleport(teleportPoints[checkpointOrder[currentCheckpoint]])
-                randWait(0.8, 2.0)
-
-                task.spawn(function()
-                    while true do
-                        task.wait(rng(20, 40))
-                        if isAutoTeleporting and math.random(100) <= 30 then
-                            local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-                            if root then
-                                root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(rng(-15, 15)), 0)
-                                task.wait(rng(0.3, 0.8))
-                            end
-                        end
-                    end
-                end)
+                randWait(1.4, 3.0)
             else
-                randWait(1.2, 2.2)
+                randWait(1.5, 2.8)
                 respawnCharacter()
-                randWait(3.0, 5.0)
+                randWait(3.5, 6.0)
                 if isAutoTeleporting then
                     currentCheckpoint = 1
-                    randWait(0.5, 1.2)
+                    randWait(0.6, 1.5)
                     saferTeleport(teleportPoints[checkpointOrder[currentCheckpoint]])
-                    game:GetService("StarterGui"):SetCore("SendNotification", {
-                        Title = "Arcan1ST Script",
-                        Text = "Restarting from CAMP1! 🔄",
-                        Duration = 3
-                    })
                 end
                 break
             end
@@ -529,11 +511,24 @@ local function isBottleFull()
 end
 
 local function tryDrink()
-    local character = player.Character
-    if not character then return false end
-    local waterBottle = character:FindFirstChild("Water Bottle")
-    if waterBottle and waterBottle:FindFirstChild("RemoteEvent") then
-        waterBottle.RemoteEvent:FireServer()
+    local char = player.Character
+    if not char then return false end
+
+    local humanoid = char:FindFirstChild("Humanoid")
+    local bottle = char:FindFirstChild("Water Bottle")
+
+    if not bottle then
+        local bp = player.Backpack:FindFirstChild("Water Bottle")
+        if bp and humanoid then
+            humanoid:EquipTool(bp)
+            task.wait(rng(0.45, 0.85))
+            bottle = char:FindFirstChild("Water Bottle")
+        end
+    end
+
+    if bottle and bottle:FindFirstChild("RemoteEvent") then
+        task.wait(rng(0.08, 0.25))
+        bottle.RemoteEvent:FireServer()
         return true
     end
     return false
@@ -566,10 +561,7 @@ local function fillBottleAtCamp(campName)
         end
         saferTeleport(fillLocation)
         randWait(1.3, 2.6)
-
-        if math.random() < 0.5 then
-            task.wait(rng(0.6, 1.4))
-        end
+        if math.random() < 0.45 then task.wait(rng(0.7, 1.6)) end
 
         ReplicatedStorage:WaitForChild("Events"):WaitForChild("EnergyHydration"):FireServer("FillBottle", properCampName, "Water")
 
@@ -585,7 +577,7 @@ end
 
 task.spawn(function()
     while true do
-        task.wait(rng(5.0, 9.0))
+        task.wait(rng(6, 11))
 
         if not isAutoHydrationEnabled then continue end
 
@@ -724,6 +716,33 @@ task.spawn(function()
         if MainFrame.Visible then
             local totalHeight = ButtonHolder.AbsoluteSize.Y + 50
             Watermark.Position = UDim2.new(0, 0, 0, totalHeight)
+        end
+    end
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(rng(30, 60))
+        if isAutoTeleporting and math.random(100) <= 22 then
+            local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+            if root then
+                root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(rng(-25, 25)), 0)
+                task.wait(rng(0.4, 1.2))
+            end
+        end
+    end
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(rng(15, 40))
+        if isAutoTeleporting and math.random() < 0.35 then
+            local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+            if root then
+                root.AssemblyLinearVelocity = Vector3.new(rng(-6, 6), 0, rng(-6, 6))
+                task.wait(rng(0.3, 0.8))
+                root.AssemblyLinearVelocity = Vector3.zero
+            end
         end
     end
 end)
